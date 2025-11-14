@@ -1,0 +1,177 @@
+# ABSA Cheque Account Statement Template
+#
+# This is an EXAMPLE template for ABSA cheque/current account statements.
+# You will need to customize the patterns based on your actual ABSA statement format.
+#
+# HOW TO CUSTOMIZE:
+# 1. Open your ABSA statement PDF
+# 2. Look at a transaction line and identify the pattern
+# 3. Update the 'transaction_pattern' regex to match your format
+# 4. Test with: python main.py --parse-bank-statement statement.pdf --bank-template absa_cheque
+#
+# Example transaction formats to look for:
+# "2024/09/05 POS Purchase Woolworths 123456 500.00 DR 5,000.00"
+# "05 Sep Payment Netflix 119.00 DR"
+# "2024-09-05 Debit Uber *Trip 234.50 -234.50"
+
+bank_name: "ABSA"
+account_type: "Cheque Account"
+country: "ZA"
+
+# Auto-detection configuration
+# CUSTOMIZE: Update these based on text that appears on your ABSA statements
+detection:
+  markers:
+    - "ABSA"
+    - "CHEQUE ACCOUNT"
+    - "CURRENT ACCOUNT"
+    - "ABSA BANK"
+  priority: 5
+
+# Transaction parsing configuration
+# CUSTOMIZE: Update the pattern to match your statement format
+parsing:
+  # EXAMPLE pattern - you MUST customize this!
+  # This example assumes format: YYYY/MM/DD Description Amount DR/CR Balance
+  transaction_pattern: '(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:,\d{3})*\.\d{2})\s+(?P<indicator>DR|CR)\s+(?P<balance>[\d,.]+)'
+
+  # Date parsing
+  date:
+    # If using YYYY/MM/DD format:
+    day_group: "day"
+    month_group: "month"
+    year_group: "year"      # Some statements include year
+    format: "%Y/%m/%d"      # Adjust to match your format (could be %d %b, %Y-%m-%d, etc.)
+    year_source: "pattern"  # Use year from pattern (or "statement" if not in pattern)
+
+    # If your statement uses month abbreviations, you might need:
+    # format: "%d %b %Y"
+    # month_group: "month_abbrev"
+
+  # Amount parsing
+  amount:
+    group: "amount"
+    decimal_separator: "."
+    thousands_separator: ","
+
+    # Credit/Debit indicator
+    # CUSTOMIZE: Could be DR/CR, Debit/Credit, or +/- signs
+    credit_indicator:
+      group: "indicator"
+      value: "CR"       # What indicates money IN (credit)
+      debit_value: "DR" # What indicates money OUT (debit)
+
+  # Description extraction
+  description:
+    group: "description"
+
+    cleanup:
+      # Remove common noise from descriptions
+      - pattern: '\s{2,}'
+        replace: ' '
+
+      # Add more cleanup rules as needed
+      # Example: Remove transaction codes
+      # - pattern: '#\d+'
+      #   replace: ''
+
+    min_length: 2
+
+  # Balance tracking (if present in your statements)
+  balance:
+    group: "balance"
+    decimal_separator: "."
+    thousands_separator: ","
+
+# Section boundaries
+# CUSTOMIZE: Based on your statement layout
+sections:
+  start_markers:
+    - "Transaction Date"
+    - "Date"
+    - "Description"
+    - "Transactions"
+
+  end_markers:
+    - "Closing Balance"
+    - "End of Statement"
+    - "Total"
+
+  skip_lines:
+    - "Opening Balance"
+    - "Closing Balance"
+    - "Page "
+    - "Statement"
+    - "Account Number"
+    - "ABSA Bank"
+    - "Balance Brought Forward"
+
+# Statement summary extraction
+# CUSTOMIZE: Patterns based on your ABSA statement
+summary:
+  statement_date:
+    patterns:
+      - 'Statement Date\s*:?\s*(?P<date>\d{2}/\d{2}/\d{4})'
+      - 'Date\s*:?\s*(?P<date>\d{4}-\d{2}-\d{2})'
+    format: "%d/%m/%Y"  # Adjust to match your format
+
+  opening_balance:
+    patterns:
+      - 'Opening Balance\s*:?\s*(?P<amount>[\d\s,.]+)'
+      - 'Balance Brought Forward\s*:?\s*(?P<amount>[\d\s,.]+)'
+
+  closing_balance:
+    patterns:
+      - 'Closing Balance\s*:?\s*(?P<amount>[\d\s,.]+)'
+      - 'Balance Carried Forward\s*:?\s*(?P<amount>[\d\s,.]+)'
+
+  total_expenses:
+    patterns:
+      - 'Total Debits\s*:?\s*(?P<amount>[\d\s,.]+)'
+      - 'Total Payments\s*:?\s*(?P<amount>[\d\s,.]+)'
+
+  total_payments:
+    patterns:
+      - 'Total Credits\s*:?\s*(?P<amount>[\d\s,.]+)'
+      - 'Total Deposits\s*:?\s*(?P<amount>[\d\s,.]+)'
+
+  statement_number:
+    patterns:
+      - 'Statement (?:No|Number)\s*:?\s*(?P<number>\d+)'
+
+  account_number:
+    patterns:
+      - 'Account (?:No|Number)\s*:?\s*(?P<account>[\d\s]+)'
+      - 'Cheque Account\s*:?\s*(?P<account>[\d\s]+)'
+
+# Output configuration
+output:
+  account_type: "absa_cheque"
+
+# CUSTOMIZATION GUIDE:
+# =====================
+#
+# 1. FIND YOUR TRANSACTION PATTERN:
+#    - Open your PDF statement
+#    - Find a transaction line
+#    - Identify: date format, description, amount, debit/credit indicator
+#
+# 2. UPDATE THE REGEX:
+#    - Use named groups: (?P<name>pattern)
+#    - Common patterns:
+#      - Date: \d{2}/\d{2}/\d{4} or \d{4}-\d{2}-\d{2}
+#      - Amount: \d{1,3}(?:,\d{3})*\.\d{2}
+#      - Description: .+? (non-greedy match)
+#
+# 3. TEST YOUR PATTERN:
+#    - Run: python main.py --parse-bank-statement your_statement.pdf --bank-template absa_cheque
+#    - Check if transactions are extracted correctly
+#    - Adjust regex as needed
+#
+# 4. COMMON ISSUES:
+#    - Transactions not found? Check section markers
+#    - Wrong dates? Verify date format string
+#    - Missing amounts? Check decimal/thousands separators
+#    - Incorrect debit/credit? Verify indicator values
+#
+# For help, see: docs/BANK_TEMPLATES.md

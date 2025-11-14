@@ -1,0 +1,72 @@
+{
+  "working_dir": "data",
+  "users": [
+    {
+      "id": "user_1",
+      "name": "Michael",
+      "person_sheet_path": "data/person_sheets/Michael_2024_11.xlsx",
+      "accounts": [
+        {
+          "name": "Main Bank Account",
+          "account_type": "personal",
+          "statements_folder": "data/raw/statements/Michael/Bank",
+          "processed_folder": "data/processed/transactions/Michael/Bank"
+        },
+        {
+          "name": "Credit Card",
+          "account_type": "credit_card",
+          "statements_folder": "data/raw/statements/Michael/CreditCard",
+          "processed_folder": "data/processed/transactions/Michael/CreditCard"
+        },
+        {
+          "name": "Savings Account",
+          "account_type": "savings",
+          "statements_folder": "data/raw/statements/Michael/Savings",
+          "processed_folder": "data/processed/transactions/Michael/Savings"
+        }
+      ]
+    },
+    {
+      "id": "user_2",
+      "name": "Jacqui",
+      "person_sheet_path": "data/person_sheets/Jacqui_2024_11.xlsx",
+      "accounts": [
+        {
+          "name": "Main Bank Account",
+          "account_type": "personal",
+          "statements_folder": "data/raw/statements/Jacqui/Bank",
+          "processed_folder": "data/processed/transactions/Jacqui/Bank"
+        },
+        {
+          "name": "Store Card",
+          "account_type": "credit_card",
+          "statements_folder": "data/raw/statements/Jacqui/StoreCard",
+          "processed_folder": "data/processed/transactions/Jacqui/StoreCard"
+        }
+      ]
+    }
+  ],
+  "shared_accounts": [
+    {
+      "name": "Joint Credit Card",
+      "account_type": "credit_card",
+      "statements_folder": "data/raw/statements/Shared/CreditCard",
+      "processed_folder": "data/processed/transactions/Shared/CreditCard"
+    },
+    {
+      "name": "Home Loan",
+      "account_type": "loan",
+      "statements_folder": "data/raw/statements/Shared/HomeLoan",
+      "processed_folder": "data/processed/transactions/Shared/HomeLoan"
+    }
+  ],
+  "matching": {
+    "amount_tolerance": 1.00,
+    "date_tolerance_days": 3,
+    "merchant_similarity_threshold": 0.6
+  },
+  "classification": {
+    "enabled": true,
+    "default_shared_type": "SHARED"
+  }
+}

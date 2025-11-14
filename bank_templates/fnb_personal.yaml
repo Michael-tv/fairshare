@@ -1,0 +1,154 @@
+# FNB Personal/Cheque Account Statement Template
+#
+# This template parses FNB personal and cheque account statements (PDF format).
+# Compatible with standard FNB transactional account layouts.
+#
+# Example transaction line:
+# "19 Sep POS Purchase Wahoo Fitness Llc 431835*7509 18 Sep 268.01 6,089.21Kt"
+# "25 Sep Debit Order Netflix Com 12345*6789 24 Sep 159.00 5,930.21Kt"
+
+bank_name: "FNB"
+account_type: "Personal Account"
+country: "ZA"
+
+# Auto-detection configuration
+detection:
+  markers:
+    - "ACCOUNT STATEMENT"
+    - "CHEQUE ACCOUNT"
+    - "PERSONAL ACCOUNT"
+    - "TRANSACTIONAL ACCOUNT"
+  priority: 8  # Lower than credit card to avoid false positives
+
+# Transaction parsing configuration
+parsing:
+  # Transaction pattern for FNB personal accounts
+  # Format: DD Mon/Okt Description Reference [Date] Amount Balance Kt/Dt
+  # Note: May include Afrikaans months (Okt, Mei, Des)
+  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mei|Okt|Des)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(?P<balance>\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(?P<indicator>Kt|Dt)'
+
+  # Date parsing configuration
+  date:
+    day_group: "day"
+    month_group: "month"
+    format: "%d %b"
+    year_source: "statement"
+    adjust_year: true
+
+    # Month translation for Afrikaans
+    month_translation:
+      Mei: "May"
+      Okt: "Oct"
+      Des: "Dec"
+
+  # Amount parsing
+  amount:
+    group: "amount"
+    decimal_separator: "."
+    thousands_separator: ","
+
+    # Debit indicator (Kt = credit/deposit, Dt = debit/expense)
+    # Note: In FNB personal accounts, Kt means money IN (credit)
+    # and Dt means money OUT (debit/expense)
+    credit_indicator:
+      group: "indicator"
+      value: "Kt"
+      invert: true  # Kt is credit, Dt is debit
+
+  # Description extraction
+  description:
+    group: "description"
+
+    cleanup:
+      # Extract card last 4 digits and store separately
+      - pattern: '\s+\d{6}\*(\d{4})\s*'
+        replace: ''  # Remove from description
+
+      # Remove reference dates (DD Mon format)
+      - pattern: '\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*$'
+        replace: ''
+
+      # Collapse multiple spaces
+      - pattern: '\s{2,}'
+        replace: ' '
+
+    min_length: 3
+
+  # Card number extraction from transaction line
+  card_number:
+    # Pattern within transaction: "431835*7509"
+    inline_pattern: '\d{6}\*(?P<digits>\d{4})'
+    extract_last_digits: 4
+
+  # Balance tracking (optional, for verification)
+  balance:
+    group: "balance"
+    decimal_separator: "."
+    thousands_separator: ","
+
+# Section boundaries
+sections:
+  start_markers:
+    - "Datum"  # Afrikaans
+    - "Date"   # English
+    - "Transaction Details"
+    - "Transaksie Besonderhede"  # Afrikaans
+
+  end_markers:
+    - "Closing Balance"
+    - "Sluitbalans"  # Afrikaans
+    - "Statement Balance"
+    - "Staatsaldo"   # Afrikaans
+
+  skip_lines:
+    - "Opening Balance"
+    - "Openingsaldo"
+    - "Closing Balance"
+    - "Sluitbalans"
+    - "Page "
+    - "Bladsy "
+    - "Statement"
+    - "Staat"
+    - "Account Number"
+    - "Rekeningnommer"
+
+# Statement summary extraction
+summary:
+  # Statement date (bilingual support)
+  statement_date:
+    pattern: '(?:Statement Date|Staat Datum)\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+    format: "%d %b %Y"
+
+    # Month translation for Afrikaans
+    month_translation:
+      Mei: "May"
+      Okt: "Oct"
+      Des: "Dec"
+
+  # Opening balance
+  opening_balance:
+    pattern: '(?:Opening Balance|Openingsaldo)\s+(?P<amount>[\d\s,.]+)'
+
+  # Closing balance
+  closing_balance:
+    pattern: '(?:Closing Balance|Sluitbalans|Statement Balance|Staatsaldo)\s+(?P<amount>[\d\s,.]+)'
+
+  # Total debits (expenses)
+  total_expenses:
+    pattern: '(?:Total Debits|Totale Debitte)\s+(?P<amount>[\d\s,.]+)'
+
+  # Total credits (payments/deposits)
+  total_payments:
+    pattern: '(?:Total Credits|Totale Kreditte)\s+(?P<amount>[\d\s,.]+)'
+
+  # Statement number
+  statement_number:
+    pattern: '(?:Statement|Staat)\s+(?:No|Nr)\.?\s*(?P<number>\d+)'
+
+  # Account number
+  account_number:
+    pattern: '(?:Account|Rekening)\s+(?:Number|Nommer)\s+(?P<account>[\d\s]+)'
+
+# Output configuration
+output:
+  account_type: "personal_account"

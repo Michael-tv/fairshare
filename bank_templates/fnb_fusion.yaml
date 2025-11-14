@@ -1,0 +1,184 @@
+# FNB Fusion Account Statement Template
+#
+# This template parses FNB Fusion Private Clients account statements (PDF format).
+# These are premium accounts with bilingual (English/Afrikaans) statements.
+#
+# Example transaction line:
+# "19 Mei POS Purchase Wahoo Fitness Llc 431835*7509 18 May 277.44 8,628.85 Kt"
+# "25 Sep Debit Order Spotify SA 12345*6789 24 Sep 119.00 8,509.85 Kt"
+
+bank_name: "FNB"
+account_type: "Fusion Account"
+country: "ZA"
+
+# Auto-detection configuration
+detection:
+  markers:
+    - "FUSION PRIVATE CLIENTS"
+    - "FUSION ACCOUNT"
+    - "Datum Beskrywing Bedrag"  # Afrikaans header
+    - "Date Description Amount"  # English header
+  priority: 15  # Highest priority - most specific markers
+
+# Transaction parsing configuration
+parsing:
+  # Transaction pattern for Fusion accounts
+  # Format: DD Mon Description Amount Balance Kt/Dt
+  # Note: Bilingual month names (Mei, Okt, Des for Afrikaans)
+  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+(?:(?P<balance>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+)?(?P<indicator>Kt|Dt)'
+
+  # Date parsing configuration
+  date:
+    day_group: "day"
+    month_group: "month"
+    format: "%d %b"
+    year_source: "statement"
+    adjust_year: true
+
+    # Comprehensive month translation (Afrikaans -> English)
+    month_translation:
+      Mei: "May"
+      Okt: "Oct"
+      Des: "Dec"
+
+  # Amount parsing
+  amount:
+    group: "amount"
+    decimal_separator: "."
+    # Fusion statements use both comma and space as thousands separator
+    thousands_separators: [",", " "]
+
+    # Credit indicator
+    credit_indicator:
+      group: "indicator"
+      value: "Kt"  # Kt = credit/deposit, Dt = debit/expense
+      invert: true
+
+  # Description extraction
+  description:
+    group: "description"
+
+    cleanup:
+      # Extract and remove card reference (6 digits*4 digits)
+      - pattern: '\s+\d{6}\*\d{4}\s*'
+        replace: ''
+
+      # Remove transaction dates from description
+      - pattern: '\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s*'
+        replace: ''
+
+      # Collapse multiple spaces
+      - pattern: '\s{2,}'
+        replace: ' '
+
+      # Trim trailing/leading whitespace
+      - pattern: '^\s+|\s+$'
+        replace: ''
+
+    min_length: 3
+
+  # Card number extraction
+  card_number:
+    inline_pattern: '\d{6}\*(?P<digits>\d{4})'
+    extract_last_digits: 4
+
+  # Balance tracking (optional)
+  balance:
+    group: "balance"
+    decimal_separator: "."
+    thousands_separators: [",", " "]
+
+# Section boundaries (bilingual)
+sections:
+  # Start markers - look for table headers
+  start_markers:
+    - "Datum Beskrywing Bedrag Saldo"    # Afrikaans: Date Description Amount Balance
+    - "Date Description Amount Balance"   # English
+    - "Datum"  # Fallback Afrikaans
+    - "Date"   # Fallback English
+
+  # End markers - statement totals section
+  end_markers:
+    - "Staatsaldo"        # Afrikaans: Statement Balance
+    - "Statement Balance" # English
+    - "Sluitbalans"       # Afrikaans: Closing Balance
+    - "Closing Balance"   # English
+    - "Totale"            # Afrikaans: Totals
+    - "Totals"            # English
+
+  skip_lines:
+    - "Opening Balance"
+    - "Openingsaldo"
+    - "Closing Balance"
+    - "Sluitbalans"
+    - "Statement Balance"
+    - "Staatsaldo"
+    - "Page "
+    - "Bladsy "
+    - "Statement"
+    - "Staat"
+    - "Account Number"
+    - "Rekeningnommer"
+    - "FUSION PRIVATE"
+    - "Beskrywing"  # Description header
+
+# Statement summary extraction (bilingual)
+summary:
+  # Statement date
+  statement_date:
+    patterns:
+      - '(?:Statement Date|Staat Datum)\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+      - 'Datum:\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+    format: "%d %b %Y"
+
+    month_translation:
+      Mei: "May"
+      Okt: "Oct"
+      Des: "Dec"
+
+  # Opening balance
+  opening_balance:
+    patterns:
+      - '(?:Opening Balance|Openingsaldo)\s+(?P<amount>[\d\s,.]+)'
+      - 'Begin\s+(?P<amount>[\d\s,.]+)'
+
+  # Closing balance
+  closing_balance:
+    patterns:
+      - '(?:Closing Balance|Sluitbalans)\s+(?P<amount>[\d\s,.]+)'
+      - '(?:Statement Balance|Staatsaldo)\s+(?P<amount>[\d\s,.]+)'
+      - 'Einde\s+(?P<amount>[\d\s,.]+)'
+
+  # Total debits
+  total_expenses:
+    patterns:
+      - '(?:Total Debits|Totale Debitte)\s+(?P<amount>[\d\s,.]+)'
+      - 'Debitte\s+(?P<amount>[\d\s,.]+)'
+
+  # Total credits
+  total_payments:
+    patterns:
+      - '(?:Total Credits|Totale Kreditte)\s+(?P<amount>[\d\s,.]+)'
+      - 'Kreditte\s+(?P<amount>[\d\s,.]+)'
+
+  # Statement number
+  statement_number:
+    patterns:
+      - '(?:Statement|Staat)\s+(?:No|Nr|Number|Nommer)\.?\s*[:.]?\s*(?P<number>\d+)'
+
+  # Account number
+  account_number:
+    patterns:
+      - '(?:Account|Rekening)\s+(?:Number|Nommer)\s*[:.]?\s*(?P<account>[\d\s]+)'
+      - 'Fusion\s+Account\s+(?P<account>[\d\s]+)'
+
+# Output configuration
+output:
+  account_type: "fusion_account"
+
+# Notes for template users:
+# - Fusion statements are bilingual, so patterns need to match both languages
+# - Month names can be in Afrikaans (Mei, Okt, Des) or English
+# - Section headers can be in either language
+# - Amount formatting uses both comma and space as thousands separator
+# - Look for "FUSION PRIVATE CLIENTS" as the most reliable detection marker

@@ -1,0 +1,29 @@
+{
+  "working_dir": "data",
+  "mode": "NET",
+  "persons": [
+    {
+      "name": "Michael",
+      "statements_folder": "raw/statements/Michael"
+    },
+    {
+      "name": "Jacqui",
+      "statements_folder": "raw/statements/Jacqui"
+    }
+  ],
+  "shared_accounts": [
+    {
+      "name": "Credit Card",
+      "statements_folder": "raw/statements/shared"
+    }
+  ],
+  "matching": {
+    "amount_tolerance": 1.00,
+    "date_tolerance_days": 3,
+    "merchant_similarity_threshold": 0.6
+  },
+  "classification": {
+    "enabled": true,
+    "default_shared_type": "SHARED"
+  }
+}

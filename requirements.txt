@@ -1,0 +1,12 @@
+# Core dependencies
+pandas>=2.0.0
+openpyxl>=3.0.0
+PyPDF2>=3.0.0
+pycryptodome>=3.20.0
+PyYAML>=6.0.1
+
+# Classification dependencies
+rapidfuzz>=2.0.0  # For learned classifier fuzzy matching
+
+# GUI dependencies
+PyQt5>=5.15.0

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fairshare"
+version = "1.0.0"
+description = "FairShare - Household finance splitting system with proportional income-based expense sharing"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "FairShare Team" }
+]
+license = { text = "MIT" }
+keywords = ["finance", "household", "budget", "expense-splitting", "fairshare"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business :: Financial",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "openpyxl>=3.0.0",
+    "PyPDF2>=3.0.0",
+    "pycryptodome>=3.20.0",
+    "pytesseract>=0.3.10",
+    "pillow>=10.0.0",
+    "pymupdf>=1.23.0", # For OCR - no external dependencies (replaces pdf2image/poppler)
+    "rapidfuzz>=3.14.3",
+]
+
+[project.scripts]
+fairshare = "fairshare:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports in __init__.py
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

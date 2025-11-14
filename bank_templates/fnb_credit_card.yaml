@@ -1,0 +1,149 @@
+# FNB Credit Card Statement Template
+#
+# This template parses FNB credit card statements (PDF format).
+# Compatible with standard FNB credit card statement layout.
+#
+# Example transaction line:
+# "05 Sep Superspar Willow Way Gauteng Nort hZA 314.99"
+# "15 Sep 1bb Tent Funds Vodsfry7w N5N 17 803.00Cr"
+
+bank_name: "FNB"
+account_type: "Credit Card"
+country: "ZA"
+
+# Auto-detection configuration
+# The parser scans the first page of the PDF for these markers
+detection:
+  markers:
+    - "FNB CREDIT CARD"
+    - "CREDIT CARD"
+  priority: 10  # Higher priority = checked first during auto-detection
+
+# Transaction parsing configuration
+parsing:
+  # Main transaction pattern using named regex groups
+  # Format: DD Mon Description... Amount[Cr]
+  # Groups: day, month, description, amount, credit (optional)
+  transaction_pattern: '(?P<day>\d{2})\s+(?P<month>\w{3})\s+(?P<description>.+?)\s+(?P<amount>[\d\s,.]+)(?P<credit>Cr)?$'
+
+  # Date parsing configuration
+  date:
+    day_group: "day"        # Regex group name for day
+    month_group: "month"    # Regex group name for month abbreviation
+    format: "%d %b"         # Format for parsing (day + month abbrev)
+    year_source: "statement"  # Use year from statement date (handles year boundary)
+
+    # If transaction month > statement month, it's from previous year
+    # (handles December statement with November transactions)
+    adjust_year: true
+
+  # Amount parsing configuration
+  amount:
+    group: "amount"              # Regex group name
+    decimal_separator: "."       # South African format
+    thousands_separator: ","     # Can be comma or space in FNB statements
+
+    # Credit indicator (payments received)
+    credit_indicator:
+      group: "credit"            # Regex group name
+      value: "Cr"                # Value that indicates a credit/payment
+
+  # Description extraction and cleanup
+  description:
+    group: "description"         # Regex group name
+
+    # Cleanup rules applied in order
+    cleanup:
+      # Remove trailing country codes (ZA, NL, SE, etc.)
+      - pattern: '\s+(?:ZA|NL|SE|GB|US)\s*$'
+        replace: ''
+
+      # Collapse multiple spaces into one
+      - pattern: '\s{2,}'
+        replace: ' '
+
+    # Minimum description length (skip if shorter)
+    min_length: 3
+
+  # Optional: Location extraction
+  location:
+    # Extract 2-letter country code from end of description
+    pattern: '\b(?P<country>[A-Z]{2})\s*$'
+    group: "country"
+
+  # Optional: Card number tracking
+  # Tracks which card was used for each transaction
+  card_number:
+    # Pattern appears in statement before transaction block
+    context_pattern: 'Card No\.\s+(?P<card>[\d*\s]+)'
+    extract_last_digits: 4  # Extract last 4 digits for display
+    scope: "until_next_card"  # Apply to all transactions until next card marker
+
+# Section boundaries
+# Defines where transaction data appears in the statement
+sections:
+  # Transaction section starts after these markers
+  start_markers:
+    - "Transaction Date"
+    - "Card No."
+    - "Tran Date"
+
+  # Transaction section ends before these markers
+  end_markers:
+    - "Closing Balance"
+    - "Account Summary"
+    - "Card Total"
+
+  # Lines containing these strings are skipped (headers, summaries, etc.)
+  skip_lines:
+    - "Opening Balance"
+    - "Closing Balance"
+    - "Card Total"
+    - "Tran Date"
+    - "Transaction Details"
+    - "Page "
+    - "Interest"
+    - "Statement"
+    - "CREDIT CARD"
+    - "Account Summary"
+
+# Statement summary extraction
+# Patterns for extracting metadata and totals
+summary:
+  # Statement date: "Statement Date 19 Sep 2024"
+  statement_date:
+    pattern: 'Statement Date\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+    format: "%d %b %Y"
+
+  # Opening balance from Account Summary
+  opening_balance:
+    pattern: 'Opening Balance\s+(?P<amount>[\d\s,.]+)'
+
+  # Closing balance
+  closing_balance:
+    pattern: 'Closing Balance\s+(?P<amount>[\d\s,.]+)'
+
+  # Total expenses (labeled "Used" in FNB statements)
+  total_expenses:
+    pattern: 'Used\s+(?P<amount>[\d\s,.]+)'
+
+  # Total payments received (with Cr indicator)
+  total_payments:
+    pattern: 'Payments Received\s+(?P<amount>[\d\s,.]+)Cr'
+
+  # Interest and fees
+  interest_fees:
+    pattern: 'Interest / Fees\s+(?P<amount>[\d\s,.]+)'
+
+  # Statement number: "Statement No.: 12345"
+  statement_number:
+    pattern: 'Statement No\.:?\s*(?P<number>\d+)'
+
+  # Account number: "CREDIT CARD 1234 5678 9012 3456"
+  account_number:
+    pattern: 'CREDIT CARD\s+(?P<account>[\d\s]+)'
+
+# Output configuration
+# Defines how transactions are labeled in the output
+output:
+  account_type: "credit_card"  # Used in BankTransaction.account_type field

@@ -1,0 +1,272 @@
+{
+  "pos aankope new balance faerie 400738*5870 18 may": {
+    "category": "CLOTHING",
+    "type": "INDIVIDUAL",
+    "count": 3,
+    "confidence": 100
+  },
+  "pos purchase wahoo fitness llc 431835*7509 18 may": {
+    "category": "SUBSCRIPTIONS",
+    "type": "INDIVIDUAL",
+    "count": 1,
+    "confidence": 100
+  },
+  "lucky castle erasmuskloof": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 9,
+    "confidence": 100
+  },
+  "irene farm ne centurion": {
+    "category": "ENTERTAINMENT",
+    "type": "HOUSEHOLD",
+    "count": 8,
+    "confidence": 100
+  },
+  "bootlegger lint 142185 pretoria eas": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 8,
+    "confidence": 100
+  },
+  "national zoological gard epretoria": {
+    "category": "ENTERTAINMENT",
+    "type": "HOUSEHOLD",
+    "count": 8,
+    "confidence": 100
+  },
+  "cappuccinos 117404 menlo park": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 12,
+    "confidence": 100
+  },
+  "sasaki sushi garsfontein": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 18,
+    "confidence": 100
+  },
+  "yoco *aroma coffee b pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 6,
+    "confidence": 100
+  },
+  "nandos lynwoodlane silverlake": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 6,
+    "confidence": 100
+  },
+  "fishaways wierda village pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 6,
+    "confidence": 100
+  },
+  "bosvelder pub and rest pietersburg": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 6,
+    "confidence": 100
+  },
+  "yoco *simbali lodge pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 18,
+    "confidence": 100
+  },
+  "tranna pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 5,
+    "confidence": 100
+  },
+  "lucky menlyn maine pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 8,
+    "confidence": 100
+  },
+  "real fish and chips eque sequestria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "mugg and bean linton pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "chamberlain silverlakes pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "wilgers animal hospita die wilgers": {
+    "category": "PETS",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "bwh silverlakes pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "arrie nel willow way pretoria": {
+    "category": "MEDICAL",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "electronics fg 202701 pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "yoco *asics atterbur pretoria": {
+    "category": "GIFTS",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "universal paints pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 7,
+    "confidence": 100
+  },
+  "dischem lynwood lane gp": {
+    "category": "MEDICAL",
+    "type": "HOUSEHOLD",
+    "count": 7,
+    "confidence": 100
+  },
+  "yoco *plato menlo pa centurion": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "cmpa serene pharm menlo park": {
+    "category": "MEDICAL",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "yoco *zwakala brewer johannesburg": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "bex lynwood pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "chamberlain silverlakes2 pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "yoco *hemels cafe pretoria": {
+    "category": "DISCRETIONARY_DINING",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "water spot pretor111033 pretoria": {
+    "category": "HOME_MAINTENANCE",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "francois marais biokinet menlo park": {
+    "category": "MEDICAL",
+    "type": "HOUSEHOLD",
+    "count": 3,
+    "confidence": 100
+  },
+  "interne debiet order momentum mm103499041bas6028zt": {
+    "category": "INSURANCE",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "magband debiet outsurance ot74915634 oc8881": {
+    "category": "INSURANCE",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "magband debiet mommedsch db 1884241015": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "magband debiet pps 000124636978 0wt9vw": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "magband debiet sl-debits sanlam 14121220": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "int betaling na swimming lessons victor emelia": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 4,
+    "confidence": 100
+  },
+  "int betaling na pretorium trust acco 930539": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "int betaling na kamdeboo 15 prop tax 5017086535": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "int betaling na water + electricity 451596": {
+    "category": "UTILITIES",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "int betaling na kamdeboo levie victor levy jan 2021": {
+    "category": "OTHER",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "int betaling na school fees emelia victor": {
+    "category": "SCHOOL_FEES",
+    "type": "HOUSEHOLD",
+    "count": 2,
+    "confidence": 100
+  },
+  "magband debiet allan grayagra1127545 aglpdebi": {
+    "category": "RETIREMENT",
+    "type": "HOUSEHOLD",
+    "count": 1,
+    "confidence": 100
+  }
+}
