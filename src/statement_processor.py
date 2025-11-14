@@ -128,19 +128,29 @@ class StatementProcessor:
         with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def scan_for_statements(self) -> List[StatementRecord]:
+    def scan_for_statements(self) -> Tuple[List[StatementRecord], Dict[str, Any]]:
         """
         Scan all account folders for PDF statements.
 
         Returns:
-            List of new or updated statement records
+            Tuple of (new_statements, diagnostics)
+            - new_statements: List of new or updated statement records
+            - diagnostics: Dict with scan statistics and issues
         """
         new_statements = []
+        diagnostics = {
+            'accounts_scanned': 0,
+            'folders_missing': [],
+            'folders_empty': [],
+            'pdfs_found': 0,
+            'new_statements': 0,
+            'existing_statements': 0
+        }
 
         # Scan user accounts
         for user in self.config.users:
             for account in user.accounts:
-                statements = self._scan_account_folder(
+                statements, account_diag = self._scan_account_folder(
                     account_name=account.name,
                     account_owner=user.name,
                     statements_folder=self.working_dir / account.statements_folder,
@@ -149,9 +159,19 @@ class StatementProcessor:
                 )
                 new_statements.extend(statements)
 
+                # Merge diagnostics
+                diagnostics['accounts_scanned'] += 1
+                if account_diag.get('folder_missing'):
+                    diagnostics['folders_missing'].append(f"{user.name} - {account.name}: {account.statements_folder}")
+                elif account_diag.get('folder_empty'):
+                    diagnostics['folders_empty'].append(f"{user.name} - {account.name}")
+                diagnostics['pdfs_found'] += account_diag.get('pdfs_found', 0)
+                diagnostics['new_statements'] += account_diag.get('new_statements', 0)
+                diagnostics['existing_statements'] += account_diag.get('existing_statements', 0)
+
         # Scan shared accounts
         for account in self.config.shared_accounts:
-            statements = self._scan_account_folder(
+            statements, account_diag = self._scan_account_folder(
                 account_name=account.name,
                 account_owner="Shared",
                 statements_folder=self.working_dir / account.statements_folder,
@@ -160,10 +180,20 @@ class StatementProcessor:
             )
             new_statements.extend(statements)
 
+            # Merge diagnostics
+            diagnostics['accounts_scanned'] += 1
+            if account_diag.get('folder_missing'):
+                diagnostics['folders_missing'].append(f"Shared - {account.name}: {account.statements_folder}")
+            elif account_diag.get('folder_empty'):
+                diagnostics['folders_empty'].append(f"Shared - {account.name}")
+            diagnostics['pdfs_found'] += account_diag.get('pdfs_found', 0)
+            diagnostics['new_statements'] += account_diag.get('new_statements', 0)
+            diagnostics['existing_statements'] += account_diag.get('existing_statements', 0)
+
         # Save state
         self._save_state()
 
-        return new_statements
+        return new_statements, diagnostics
 
     def _scan_account_folder(
         self,
@@ -172,15 +202,38 @@ class StatementProcessor:
         statements_folder: Path,
         processed_folder: Path,
         is_shared: bool
-    ) -> List[StatementRecord]:
-        """Scan a single account folder for PDF statements"""
-        new_statements = []
+    ) -> Tuple[List[StatementRecord], Dict[str, Any]]:
+        """
+        Scan a single account folder for PDF statements.
 
+        Returns:
+            Tuple of (new_statements, diagnostics)
+        """
+        new_statements = []
+        diagnostics = {
+            'folder_missing': False,
+            'folder_empty': False,
+            'pdfs_found': 0,
+            'new_statements': 0,
+            'existing_statements': 0
+        }
+
+        # Check if folder exists
         if not statements_folder.exists():
-            return new_statements
+            print(f"⚠️  Folder does not exist: {statements_folder}")
+            diagnostics['folder_missing'] = True
+            return new_statements, diagnostics
 
         # Find all PDF files
         pdf_files = list(statements_folder.glob("*.pdf")) + list(statements_folder.glob("*.PDF"))
+
+        if not pdf_files:
+            print(f"ℹ️  No PDF files found in: {statements_folder}")
+            diagnostics['folder_empty'] = True
+            return new_statements, diagnostics
+
+        diagnostics['pdfs_found'] = len(pdf_files)
+        print(f"✓ Found {len(pdf_files)} PDF file(s) in: {statements_folder}")
 
         for pdf_path in pdf_files:
             stmt_id = self._generate_statement_id(account_name, pdf_path.name)
@@ -191,6 +244,7 @@ class StatementProcessor:
                 # Update file path in case it moved
                 if existing.file_path != str(pdf_path):
                     existing.file_path = str(pdf_path)
+                diagnostics['existing_statements'] += 1
                 continue
 
             # Create new record
@@ -214,8 +268,9 @@ class StatementProcessor:
 
             self.statements[stmt_id] = record
             new_statements.append(record)
+            diagnostics['new_statements'] += 1
 
-        return new_statements
+        return new_statements, diagnostics
 
     def process_statement(
         self,
