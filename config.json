@@ -37,12 +37,13 @@
     }
   ],
   "matching": {
-    "amount_tolerance": 1.00,
+    "amount_tolerance": 1.0,
     "date_tolerance_days": 3,
     "merchant_similarity_threshold": 0.6
   },
   "classification": {
     "enabled": true,
     "default_shared_type": "SHARED"
-  }
+  },
+  "mode": "NET"
 }
