@@ -484,7 +484,12 @@ class ProcessStatementsTab(QWidget):
         if column == 8:  # Actions column
             return
 
-        statement_id = self.table.item(row, 0).data(Qt.UserRole)
+        # Check if this is a detail row (has no item at column 0)
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+
+        statement_id = item.data(Qt.UserRole)
         record = self.processor.get_statement(statement_id)
 
         if not record or record.status == ProcessingStatus.UNPROCESSED.value:
