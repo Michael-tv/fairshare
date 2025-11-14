@@ -681,7 +681,7 @@ class ProcessStatementsTab(QWidget):
     def _create_detail_widget(self, record: StatementRecord) -> QWidget:
         """Create detail widget showing breakdown."""
         widget = QWidget()
-        widget.setStyleSheet("background-color: #f0f0f0; padding: 10px;")
+        widget.setStyleSheet("background-color: #f0f0f0; color: #000000; padding: 10px;")
         layout = QVBoxLayout(widget)
 
         # Title
