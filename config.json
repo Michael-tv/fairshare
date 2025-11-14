@@ -9,8 +9,8 @@
         {
           "name": "Main Bank Account",
           "account_type": "personal",
-          "statements_folder": "data/raw/statements/Michael",
-          "processed_folder": "data/processed/transactions/Michael"
+          "statements_folder": "raw/statements/Michael",
+          "processed_folder": "processed/transactions/Michael"
         }
       ]
     },
@@ -22,8 +22,8 @@
         {
           "name": "Main Bank Account",
           "account_type": "personal",
-          "statements_folder": "data/raw/statements/Jacqui",
-          "processed_folder": "data/processed/transactions/Jacqui"
+          "statements_folder": "raw/statements/Jacqui",
+          "processed_folder": "processed/transactions/Jacqui"
         }
       ]
     }
@@ -32,8 +32,8 @@
     {
       "name": "Credit Card",
       "account_type": "credit_card",
-      "statements_folder": "data/raw/statements/shared",
-      "processed_folder": "data/processed/transactions/shared"
+      "statements_folder": "raw/statements/shared",
+      "processed_folder": "processed/transactions/shared"
     }
   ],
   "matching": {
