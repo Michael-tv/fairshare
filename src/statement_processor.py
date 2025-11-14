@@ -336,7 +336,9 @@ class StatementProcessor:
             types = []
             assigned_users = []
 
-            user_names = self.config.get_user_names()
+            user_names = self.config.get_user_names() if self.config else []
+            if not user_names:
+                print("Warning: No users configured")
 
             for _, row in df.iterrows():
                 description = row['Description']
@@ -355,7 +357,7 @@ class StatementProcessor:
                 # Assign user (for personal expenses on shared accounts)
                 if record.is_shared_account and exp_type == "INDIVIDUAL":
                     # Default to first user for now (can be corrected in UI)
-                    assigned_users.append(user_names[0] if user_names else "")
+                    assigned_users.append(user_names[0] if user_names else "Unassigned")
                 else:
                     assigned_users.append("")
 
@@ -366,8 +368,9 @@ class StatementProcessor:
 
             # Calculate breakdown
             breakdown = {"household": 0.0}
-            for user_name in user_names:
-                breakdown[user_name.lower()] = 0.0
+            if user_names:
+                for user_name in user_names:
+                    breakdown[user_name.lower()] = 0.0
 
             for _, row in df.iterrows():
                 amount = float(row['Amount'])

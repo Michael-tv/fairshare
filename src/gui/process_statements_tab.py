@@ -235,12 +235,11 @@ class ProcessStatementsTab(QWidget):
             self.refresh_table()
             self.status_label.setText("Ready")
         except Exception as e:
-            self.status_label.setText(f"Error loading config: {str(e)}")
-            QMessageBox.critical(
-                self,
-                "Configuration Error",
-                f"Failed to load configuration:\n{str(e)}"
-            )
+            error_msg = f"Error loading config: {str(e)}"
+            self.status_label.setText(error_msg)
+            # Don't show blocking dialog during initialization - it can cause hangs
+            # User can see the error in the status label
+            print(f"Config error: {str(e)}")  # Log to console
 
     def scan_statements(self):
         """Scan for new statements."""
