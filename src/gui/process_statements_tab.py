@@ -53,7 +53,7 @@ class ProcessingThread(QThread):
 class ScanThread(QThread):
     """Background thread for scanning statements."""
 
-    finished = pyqtSignal(int)  # count of new statements
+    finished = pyqtSignal(int, dict)  # count of new statements, diagnostics
     progress = pyqtSignal(str)
 
     def __init__(self, processor: StatementProcessor):
@@ -64,11 +64,11 @@ class ScanThread(QThread):
         """Run the scan in background."""
         try:
             self.progress.emit("Scanning for statements...")
-            new_statements = self.processor.scan_for_statements()
-            self.finished.emit(len(new_statements))
+            new_statements, diagnostics = self.processor.scan_for_statements()
+            self.finished.emit(len(new_statements), diagnostics)
         except Exception as e:
             self.progress.emit(f"Error: {str(e)}")
-            self.finished.emit(0)
+            self.finished.emit(0, {})
 
 
 class ProcessStatementsTab(QWidget):
@@ -158,6 +158,15 @@ class ProcessStatementsTab(QWidget):
         group = QGroupBox("Filters")
         layout = QHBoxLayout()
 
+        # Account filter
+        layout.addWidget(QLabel("Account:"))
+        self.account_filter = QComboBox()
+        self.account_filter.addItem("All")
+        self.account_filter.currentTextChanged.connect(self.refresh_table)
+        layout.addWidget(self.account_filter)
+
+        layout.addSpacing(20)
+
         # Status filter
         layout.addWidget(QLabel("Status:"))
         self.status_filter = QComboBox()
@@ -232,6 +241,10 @@ class ProcessStatementsTab(QWidget):
                 templates_dir=Path("bank_templates"),
                 learned_rules_path=self.config.working_dir / "learned_classifications.json"
             )
+
+            # Populate account filter
+            self._populate_account_filter()
+
             self.refresh_table()
             self.status_label.setText("Ready")
         except Exception as e:
@@ -241,6 +254,31 @@ class ProcessStatementsTab(QWidget):
                 "Configuration Error",
                 f"Failed to load configuration:\n{str(e)}"
             )
+
+    def _populate_account_filter(self):
+        """Populate account filter dropdown with available accounts."""
+        # Clear existing items (except "All")
+        self.account_filter.clear()
+        self.account_filter.addItem("All")
+
+        if not self.config:
+            return
+
+        accounts = set()
+
+        # Add user accounts
+        for user in self.config.users:
+            for account in user.accounts:
+                # Format: "Owner - Account Name"
+                accounts.add(f"{user.name} - {account.name}")
+
+        # Add shared accounts
+        for account in self.config.shared_accounts:
+            accounts.add(f"Shared - {account.name}")
+
+        # Sort and add to combobox
+        for account_name in sorted(accounts):
+            self.account_filter.addItem(account_name)
 
     def scan_statements(self):
         """Scan for new statements."""
@@ -257,17 +295,45 @@ class ProcessStatementsTab(QWidget):
         self.scan_thread.finished.connect(self.on_scan_finished)
         self.scan_thread.start()
 
-    def on_scan_finished(self, count: int):
+    def on_scan_finished(self, count: int, diagnostics: dict):
         """Handle scan completion."""
         self.scan_btn.setEnabled(True)
-        self.status_label.setText(f"Scan complete. Found {count} new statement(s)")
+
+        # Build status message
+        status_parts = [f"Scanned {diagnostics.get('accounts_scanned', 0)} account(s)"]
+        status_parts.append(f"Found {diagnostics.get('pdfs_found', 0)} PDF(s)")
+        status_parts.append(f"{count} new")
+
+        self.status_label.setText(" | ".join(status_parts))
         self.refresh_table()
 
-        if count > 0:
+        # Build detailed message
+        message_parts = [
+            f"Scan Results:",
+            f"• Accounts scanned: {diagnostics.get('accounts_scanned', 0)}",
+            f"• PDF files found: {diagnostics.get('pdfs_found', 0)}",
+            f"• New statements: {diagnostics.get('new_statements', 0)}",
+            f"• Existing statements: {diagnostics.get('existing_statements', 0)}"
+        ]
+
+        # Add warnings for missing folders
+        if diagnostics.get('folders_missing'):
+            message_parts.append("\n⚠️ Missing folders:")
+            for folder in diagnostics['folders_missing']:
+                message_parts.append(f"  • {folder}")
+
+        # Add info for empty folders
+        if diagnostics.get('folders_empty'):
+            message_parts.append("\nℹ️ Empty folders (no PDFs):")
+            for folder in diagnostics['folders_empty']:
+                message_parts.append(f"  • {folder}")
+
+        # Show message if there are any issues or new statements
+        if count > 0 or diagnostics.get('folders_missing') or diagnostics.get('folders_empty'):
             QMessageBox.information(
                 self,
                 "Scan Complete",
-                f"Found {count} new statement(s)"
+                "\n".join(message_parts)
             )
 
     def refresh_table(self):
@@ -294,6 +360,16 @@ class ProcessStatementsTab(QWidget):
     def _apply_filters(self, statements: List[StatementRecord]) -> List[StatementRecord]:
         """Apply current filters to statements."""
         filtered = statements
+
+        # Account filter
+        account_filter = self.account_filter.currentText()
+        if account_filter != "All":
+            # Parse filter format: "Owner - Account Name"
+            parts = account_filter.split(" - ", 1)
+            if len(parts) == 2:
+                owner, account_name = parts
+                filtered = [s for s in filtered
+                           if s.account_owner == owner and s.account_name == account_name]
 
         # Status filter
         status_filter = self.status_filter.currentText()
@@ -549,6 +625,7 @@ class ProcessStatementsTab(QWidget):
 
     def clear_filters(self):
         """Clear all filters."""
+        self.account_filter.setCurrentText("All")
         self.status_filter.setCurrentText("All")
         self.date_from.setDate(QDate.currentDate().addMonths(-3))
         self.date_to.setDate(QDate.currentDate().addMonths(1))
