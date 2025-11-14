@@ -1,20 +1,39 @@
 {
   "working_dir": "data",
-  "mode": "NET",
-  "persons": [
+  "users": [
     {
+      "id": "user_1",
       "name": "Michael",
-      "statements_folder": "raw/statements/Michael"
+      "person_sheet_path": "data/person_sheets/Michael_2024_11.xlsx",
+      "accounts": [
+        {
+          "name": "Main Bank Account",
+          "account_type": "personal",
+          "statements_folder": "data/raw/statements/Michael",
+          "processed_folder": "data/processed/transactions/Michael"
+        }
+      ]
     },
     {
+      "id": "user_2",
       "name": "Jacqui",
-      "statements_folder": "raw/statements/Jacqui"
+      "person_sheet_path": "data/person_sheets/Jacqui_2024_11.xlsx",
+      "accounts": [
+        {
+          "name": "Main Bank Account",
+          "account_type": "personal",
+          "statements_folder": "data/raw/statements/Jacqui",
+          "processed_folder": "data/processed/transactions/Jacqui"
+        }
+      ]
     }
   ],
   "shared_accounts": [
     {
       "name": "Credit Card",
-      "statements_folder": "raw/statements/shared"
+      "account_type": "credit_card",
+      "statements_folder": "data/raw/statements/shared",
+      "processed_folder": "data/processed/transactions/shared"
     }
   ],
   "matching": {
