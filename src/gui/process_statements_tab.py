@@ -10,12 +10,16 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QPushButton,
     QLabel, QTableWidget, QTableWidgetItem, QHeaderView,
     QDateEdit, QComboBox, QMessageBox, QProgressDialog,
-    QAbstractItemView, QSizePolicy
+    QAbstractItemView, QSizePolicy, QDialog, QTextEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate
-from PyQt5.QtGui import QFont, QColor, QBrush
+from PyQt5.QtGui import QFont, QColor, QBrush, QDesktopServices
+from PyQt5.QtCore import QUrl
 
 import sys
+import os
+import subprocess
+import pandas as pd
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -69,6 +73,157 @@ class ScanThread(QThread):
         except Exception as e:
             self.progress.emit(f"Error: {str(e)}")
             self.finished.emit(0, {})
+
+
+class TransactionsViewerDialog(QDialog):
+    """Dialog for viewing statement transactions."""
+
+    def __init__(self, record: StatementRecord, excel_path: Path, is_classified: bool, parent=None):
+        super().__init__(parent)
+        self.record = record
+        self.excel_path = excel_path
+        self.is_classified = is_classified
+
+        self.setWindowTitle(f"Transactions - {record.filename}")
+        self.setMinimumSize(900, 600)
+        self.resize(1000, 700)
+
+        self.init_ui()
+        self.load_transactions()
+
+    def init_ui(self):
+        """Initialize the user interface."""
+        layout = QVBoxLayout(self)
+
+        # Header
+        header_layout = QVBoxLayout()
+
+        # Title
+        title = QLabel(f"Statement: {self.record.filename}")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        header_layout.addWidget(title)
+
+        # Account info
+        info_text = f"Account: {self.record.account_name}"
+        if self.record.account_owner:
+            info_text += f" ({self.record.account_owner})"
+        info_label = QLabel(info_text)
+        header_layout.addWidget(info_label)
+
+        # Status
+        status_text = "Status: "
+        if self.is_classified:
+            status_text += "Classified (Household/Personal assignments complete)"
+        else:
+            status_text += "Extracted Only (Not yet classified - Type and Category columns will be blank)"
+        status_label = QLabel(status_text)
+        status_label.setWordWrap(True)
+        header_layout.addWidget(status_label)
+
+        layout.addLayout(header_layout)
+
+        # Summary section
+        self.summary_label = QLabel()
+        self.summary_label.setStyleSheet("background-color: #e8f4f8; padding: 10px; border-radius: 5px;")
+        self.summary_label.setWordWrap(True)
+        layout.addWidget(self.summary_label)
+
+        # Transactions table
+        self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSortingEnabled(True)
+        layout.addWidget(self.table)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+    def load_transactions(self):
+        """Load and display transactions from Excel file."""
+        try:
+            if not self.excel_path.exists():
+                QMessageBox.warning(
+                    self,
+                    "File Not Found",
+                    f"Transactions file not found:\n{self.excel_path}"
+                )
+                return
+
+            # Load Excel file
+            df = pd.read_excel(self.excel_path, sheet_name=0)
+
+            # Update summary
+            total_in = self.record.total_in
+            total_out = self.record.total_out
+            summary_parts = [
+                f"Transactions: {len(df)}",
+                f"Total In: R{total_in:,.2f}",
+                f"Total Out: R{total_out:,.2f}",
+                f"Net: R{(total_in - total_out):,.2f}"
+            ]
+
+            if self.record.breakdown and self.is_classified:
+                breakdown_text = " | ".join([f"{k.title()}: R{v:,.2f}" for k, v in self.record.breakdown.items()])
+                summary_parts.append(f"Breakdown: {breakdown_text}")
+
+            self.summary_label.setText(" | ".join(summary_parts))
+
+            # Setup table columns
+            columns = list(df.columns)
+            self.table.setColumnCount(len(columns))
+            self.table.setHorizontalHeaderLabels(columns)
+
+            # Populate table
+            self.table.setRowCount(len(df))
+            for row_idx, row in df.iterrows():
+                for col_idx, col_name in enumerate(columns):
+                    value = row[col_name]
+
+                    # Format value
+                    if pd.isna(value):
+                        display_value = ""
+                    elif col_name == 'Amount':
+                        try:
+                            display_value = f"R{float(value):,.2f}"
+                        except:
+                            display_value = str(value)
+                    else:
+                        display_value = str(value)
+
+                    item = QTableWidgetItem(display_value)
+
+                    # Right-align amounts
+                    if col_name == 'Amount':
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+                    # Color-code Type column if classified
+                    if col_name == 'Type' and self.is_classified and not pd.isna(value):
+                        if str(value).lower() in ['household', 'shared']:
+                            item.setBackground(QBrush(QColor(200, 255, 200)))
+                        elif str(value).lower() in ['personal', 'individual']:
+                            item.setBackground(QBrush(QColor(255, 255, 200)))
+
+                    self.table.setItem(row_idx, col_idx, item)
+
+            # Resize columns
+            header = self.table.horizontalHeader()
+            for i in range(len(columns)):
+                if columns[i] == 'Description':
+                    header.setSectionResizeMode(i, QHeaderView.Stretch)
+                else:
+                    header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading Transactions",
+                f"Failed to load transactions:\n{str(e)}"
+            )
 
 
 class ProcessStatementsTab(QWidget):
@@ -559,6 +714,23 @@ class ProcessStatementsTab(QWidget):
             error_label.setStyleSheet("color: red;")
             layout.addWidget(error_label)
 
+        # Action buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
+
+        # Open PDF button
+        pdf_btn = QPushButton("Open PDF Statement")
+        pdf_btn.clicked.connect(lambda: self.open_pdf_statement(record))
+        buttons_layout.addWidget(pdf_btn)
+
+        # View Transactions button (only if processed)
+        if record.status != ProcessingStatus.UNPROCESSED.value:
+            view_txn_btn = QPushButton("View Transactions")
+            view_txn_btn.clicked.connect(lambda: self.view_transactions(record))
+            buttons_layout.addWidget(view_txn_btn)
+
+        layout.addLayout(buttons_layout)
+
         return widget
 
     def process_statement(self, statement_id: str):
@@ -630,3 +802,92 @@ class ProcessStatementsTab(QWidget):
         self.date_from.setDate(QDate.currentDate().addMonths(-3))
         self.date_to.setDate(QDate.currentDate().addMonths(1))
         self.refresh_table()
+
+    def _get_statements_dir(self, record: StatementRecord) -> Path:
+        """Get statements directory for an account."""
+        if not self.config:
+            return Path()
+
+        # Find the account's processed folder
+        for user in self.config.users:
+            for account in user.accounts:
+                if account.name == record.account_name:
+                    base_dir = self.config.working_dir / account.processed_folder
+                    return base_dir / "statements"
+
+        for account in self.config.shared_accounts:
+            if account.name == record.account_name:
+                base_dir = self.config.working_dir / account.processed_folder
+                return base_dir / "statements"
+
+        # Fallback
+        return self.config.working_dir / "processed" / "statements"
+
+    def _get_pdf_path(self, record: StatementRecord) -> Path:
+        """Get PDF file path for a statement."""
+        return Path(record.file_path)
+
+    def _get_raw_excel_path(self, record: StatementRecord) -> Path:
+        """Get raw Excel file path for a statement."""
+        statements_dir = self._get_statements_dir(record)
+        return statements_dir / f"{record.id}_raw.xlsx"
+
+    def _get_classified_excel_path(self, record: StatementRecord) -> Path:
+        """Get classified Excel file path for a statement."""
+        statements_dir = self._get_statements_dir(record)
+        return statements_dir / f"{record.id}_classified.xlsx"
+
+    def open_pdf_statement(self, record: StatementRecord):
+        """Open PDF statement in default viewer."""
+        pdf_path = self._get_pdf_path(record)
+
+        if not pdf_path.exists():
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"PDF file not found:\n{pdf_path}"
+            )
+            return
+
+        try:
+            # Try platform-specific methods
+            if sys.platform == 'win32':
+                os.startfile(str(pdf_path))
+            elif sys.platform == 'darwin':  # macOS
+                subprocess.run(['open', str(pdf_path)], check=True)
+            else:  # Linux and other Unix-like
+                subprocess.run(['xdg-open', str(pdf_path)], check=True)
+
+            self.status_label.setText(f"Opened: {record.filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Opening PDF",
+                f"Failed to open PDF file:\n{str(e)}\n\nFile: {pdf_path}"
+            )
+
+    def view_transactions(self, record: StatementRecord):
+        """View transactions in a dialog."""
+        # Determine which file to open (prefer classified, fallback to raw)
+        classified_path = self._get_classified_excel_path(record)
+        raw_path = self._get_raw_excel_path(record)
+
+        if classified_path.exists():
+            excel_path = classified_path
+            is_classified = True
+        elif raw_path.exists():
+            excel_path = raw_path
+            is_classified = False
+        else:
+            QMessageBox.warning(
+                self,
+                "No Transactions",
+                f"No transaction files found for this statement.\n\n"
+                f"Expected:\n{classified_path}\nor\n{raw_path}"
+            )
+            return
+
+        # Open dialog
+        dialog = TransactionsViewerDialog(record, excel_path, is_classified, self)
+        dialog.exec_()
