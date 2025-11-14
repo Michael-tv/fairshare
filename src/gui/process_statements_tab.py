@@ -119,24 +119,25 @@ class ProcessStatementsTab(QWidget):
 
         # Statements table
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "Account", "Owner", "Statement File", "Status",
-            "Period", "Transactions", "Total In", "Total Out", "Actions"
+            "Period Start", "Period End", "Transactions", "Total In", "Total Out", "Actions"
         ])
 
         # Table settings
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.Fixed)
-        header.resizeSection(8, 150)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Account
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Owner
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Statement File
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Status
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Period Start
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Period End
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Transactions
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Total In
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)  # Total Out
+        header.setSectionResizeMode(9, QHeaderView.Fixed)  # Actions
+        header.resizeSection(9, 150)
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -413,38 +414,44 @@ class ProcessStatementsTab(QWidget):
         status_item.setBackground(self._get_status_color(record.status))
         self.table.setItem(row, 3, status_item)
 
-        # Period
-        period_str = ""
-        if record.statement_period_start and record.statement_period_end:
+        # Period Start
+        period_start_str = ""
+        if record.statement_period_start:
             try:
                 start = datetime.fromisoformat(record.statement_period_start)
-                end = datetime.fromisoformat(record.statement_period_end)
-                if start.date() == end.date():
-                    period_str = start.strftime("%Y-%m-%d")
-                else:
-                    period_str = f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}"
+                period_start_str = start.strftime("%Y-%m-%d")
             except:
-                period_str = "Unknown"
-        self.table.setItem(row, 4, QTableWidgetItem(period_str))
+                period_start_str = "Unknown"
+        self.table.setItem(row, 4, QTableWidgetItem(period_start_str))
+
+        # Period End
+        period_end_str = ""
+        if record.statement_period_end:
+            try:
+                end = datetime.fromisoformat(record.statement_period_end)
+                period_end_str = end.strftime("%Y-%m-%d")
+            except:
+                period_end_str = "Unknown"
+        self.table.setItem(row, 5, QTableWidgetItem(period_end_str))
 
         # Transaction count
         count_item = QTableWidgetItem(str(record.transaction_count))
         count_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.table.setItem(row, 5, count_item)
+        self.table.setItem(row, 6, count_item)
 
         # Total In
         total_in_item = QTableWidgetItem(f"R{record.total_in:,.2f}")
         total_in_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.table.setItem(row, 6, total_in_item)
+        self.table.setItem(row, 7, total_in_item)
 
         # Total Out
         total_out_item = QTableWidgetItem(f"R{record.total_out:,.2f}")
         total_out_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.table.setItem(row, 7, total_out_item)
+        self.table.setItem(row, 8, total_out_item)
 
         # Actions
         actions_widget = self._create_actions_widget(record)
-        self.table.setCellWidget(row, 8, actions_widget)
+        self.table.setCellWidget(row, 9, actions_widget)
 
         # Store statement ID in row
         self.table.item(row, 0).setData(Qt.UserRole, record.id)
@@ -481,7 +488,7 @@ class ProcessStatementsTab(QWidget):
 
     def on_row_clicked(self, row: int, column: int):
         """Handle row click to show/hide details."""
-        if column == 8:  # Actions column
+        if column == 9:  # Actions column
             return
 
         # Check if this is a detail row (has no item at column 0)
@@ -513,7 +520,7 @@ class ProcessStatementsTab(QWidget):
         detail_widget = self._create_detail_widget(record)
 
         # Span all columns
-        self.table.setSpan(detail_row, 0, 1, 9)
+        self.table.setSpan(detail_row, 0, 1, 10)
         self.table.setCellWidget(detail_row, 0, detail_widget)
 
         # Set row height
