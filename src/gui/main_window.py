@@ -15,6 +15,7 @@ from gui.process_month_tab import ProcessMonthTab
 from gui.templates_tab import TemplatesTab
 from gui.settings_tab import SettingsTab
 from gui.process_statements_tab import ProcessStatementsTab
+from gui.classifier_tab import TransactionClassifierTab
 
 
 class MainWindow(QMainWindow):
@@ -38,12 +39,14 @@ class MainWindow(QMainWindow):
         # Initialize tabs
         self.settings_tab = SettingsTab(self)
         self.process_statements_tab = ProcessStatementsTab(self)
+        self.classifier_tab = TransactionClassifierTab(self)
         self.process_tab = ProcessMonthTab(self)
         self.templates_tab = TemplatesTab(self)
 
         # Add tabs to widget (Settings first)
         self.tabs.addTab(self.settings_tab, "Settings")
         self.tabs.addTab(self.process_statements_tab, "Process Statements")
+        self.tabs.addTab(self.classifier_tab, "Transaction Classifier")
         self.tabs.addTab(self.process_tab, "Process Month")
         self.tabs.addTab(self.templates_tab, "Create Templates")
 
