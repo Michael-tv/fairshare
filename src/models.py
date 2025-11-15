@@ -8,35 +8,85 @@ from typing import Optional, List
 from decimal import Decimal
 
 
-# ExpenseCategory is now managed by CategoryManager in category_manager.py
-# This provides default categories that are loaded on first run
-DEFAULT_EXPENSE_CATEGORIES = {
-    "TAX": "Tax",
-    "UIF": "UIF",
-    "BANK_CHARGES": "Bank Charges",
-    "MEDICAL_AID": "Medical Aid",
-    "LOANS": "Loans",
-    "INSURANCE": "Insurance",
-    "UTILITIES": "Utilities",
-    "GROCERIES": "Groceries",
-    "FUEL": "Fuel",
-    "LEVIES": "Levies",
-    "RATES": "Rates",
-    "SCHOOL_FEES": "School Fees",
-    "DOMESTIC_HELP": "Domestic Help",
-    "SUBSCRIPTIONS": "Subscriptions",
-    "ENTERTAINMENT": "Entertainment",
-    "MAINTENANCE": "Maintenance",
-    "CLOTHING": "Clothing",
-    "HOUSEHOLD": "Household",
-    "TRANSPORT": "Transport",
-    "OTHER": "Other"
-}
-
-# Keep ExpenseCategory as a simple class for backward compatibility
+# Expense categories as string constants for simplicity
+# These are used throughout the codebase for categorizing expenses
 class ExpenseCategory:
-    """Expense categories - now managed dynamically via CategoryManager"""
-    pass
+    """
+    Expense category constants.
+
+    Simplified from dynamic system - fairshare only needs these predefined categories.
+    """
+    TAX = "TAX"
+    UIF = "UIF"
+    BANK_CHARGES = "BANK_CHARGES"
+    MEDICAL_AID = "MEDICAL_AID"
+    LOANS = "LOANS"
+    INSURANCE = "INSURANCE"
+    UTILITIES = "UTILITIES"
+    GROCERIES = "GROCERIES"
+    FUEL = "FUEL"
+    LEVIES = "LEVIES"
+    RATES = "RATES"
+    SCHOOL_FEES = "SCHOOL_FEES"
+    DOMESTIC_HELP = "DOMESTIC_HELP"
+    SUBSCRIPTIONS = "SUBSCRIPTIONS"
+    ENTERTAINMENT = "ENTERTAINMENT"
+    MAINTENANCE = "MAINTENANCE"
+    CLOTHING = "CLOTHING"
+    HOUSEHOLD = "HOUSEHOLD"
+    TRANSPORT = "TRANSPORT"
+    OTHER = "OTHER"
+
+    @classmethod
+    def all(cls) -> dict:
+        """Get all categories as a dictionary {code: display_name}."""
+        return {
+            cls.TAX: "Tax",
+            cls.UIF: "UIF",
+            cls.BANK_CHARGES: "Bank Charges",
+            cls.MEDICAL_AID: "Medical Aid",
+            cls.LOANS: "Loans",
+            cls.INSURANCE: "Insurance",
+            cls.UTILITIES: "Utilities",
+            cls.GROCERIES: "Groceries",
+            cls.FUEL: "Fuel",
+            cls.LEVIES: "Levies",
+            cls.RATES: "Rates",
+            cls.SCHOOL_FEES: "School Fees",
+            cls.DOMESTIC_HELP: "Domestic Help",
+            cls.SUBSCRIPTIONS: "Subscriptions",
+            cls.ENTERTAINMENT: "Entertainment",
+            cls.MAINTENANCE: "Maintenance",
+            cls.CLOTHING: "Clothing",
+            cls.HOUSEHOLD: "Household",
+            cls.TRANSPORT: "Transport",
+            cls.OTHER: "Other"
+        }
+
+    @classmethod
+    def get_display_name(cls, code: str) -> str:
+        """Get display name for a category code."""
+        return cls.all().get(code, code)
+
+    @classmethod
+    def from_string(cls, value: str) -> str:
+        """
+        Get category constant from string (case-insensitive).
+
+        Args:
+            value: Category string (e.g., "Tax", "tax", "TAX")
+
+        Returns:
+            Category constant or OTHER if not found
+        """
+        value_upper = value.upper().replace(" ", "_")
+        if hasattr(cls, value_upper):
+            return getattr(cls, value_upper)
+        return cls.OTHER
+
+
+# Backward compatibility: keep DEFAULT_EXPENSE_CATEGORIES as alias
+DEFAULT_EXPENSE_CATEGORIES = ExpenseCategory.all()
 
 
 class ExpenseType(Enum):

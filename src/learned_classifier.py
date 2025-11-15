@@ -3,9 +3,10 @@ Learned Classifier - Learn from user corrections using fuzzy matching.
 
 This module stores user corrections to auto-classifications and uses fuzzy
 string matching to apply learned rules to similar transactions.
+
+REFACTORED: Now uses JsonRepository base class for persistence.
 """
 
-import json
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -13,6 +14,7 @@ import pandas as pd
 from rapidfuzz import fuzz, process
 
 from src.models import ExpenseType, DEFAULT_EXPENSE_CATEGORIES
+from src.utils import JsonRepository
 
 
 class LearnedClassifier:
@@ -52,38 +54,12 @@ class LearnedClassifier:
             account_id: Unique identifier for the account
             similarity_threshold: Minimum fuzzy match score (0-100) to consider a match
         """
-        self.rules_path = learned_rules_path
         self.account_id = account_id
         self.similarity_threshold = similarity_threshold
-        self.rules: Dict[str, Dict] = {}
-        self.all_rules: Dict[str, Dict[str, Dict]] = {}  # All accounts' rules
-        self._load_rules()
 
-    def _load_rules(self) -> None:
-        """Load learned rules from JSON file (account-specific)."""
-        if self.rules_path.exists():
-            try:
-                with open(self.rules_path, 'r', encoding='utf-8') as f:
-                    self.all_rules = json.load(f)
-                    # Get this account's rules
-                    self.rules = self.all_rules.get(self.account_id, {})
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"[!] Warning: Could not load learned rules: {e}")
-                self.all_rules = {}
-                self.rules = {}
-        else:
-            self.all_rules = {}
-            self.rules = {}
-
-    def _save_rules(self) -> None:
-        """Save learned rules to JSON file (account-specific)."""
-        # Update this account's rules in the global structure
-        self.all_rules[self.account_id] = self.rules
-
-        # Save all rules
-        self.rules_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.rules_path, 'w', encoding='utf-8') as f:
-            json.dump(self.all_rules, indent=2, fp=f)
+        # Use JsonRepository for persistence (account-scoped)
+        self.repo = JsonRepository(learned_rules_path, account_id)
+        self.rules: Dict[str, Dict] = self.repo.data
 
     def classify(self, description: str) -> Optional[str]:
         """
@@ -194,8 +170,8 @@ class LearnedClassifier:
                 }
                 new_rules += 1
 
-        # Save updated rules
-        self._save_rules()
+        # Save updated rules (auto-save enabled in repo)
+        self.repo.save()
 
         if verbose:
             print(f"  Learned from {len(corrections)} corrections")
