@@ -79,8 +79,10 @@ class StatementProcessor:
         self.templates_dir = templates_dir
         self.template_registry = TemplateRegistry(templates_dir)
 
-        # Initialize classifier
+        # Initialize classifier with default account_id
+        # Note: This should be refactored to create per-account classifiers
         self.classifier = TransactionClassifier(
+            account_id="default",
             learned_rules_path=learned_rules_path,
             use_learned=True
         )
