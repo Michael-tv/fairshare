@@ -7,6 +7,8 @@ Note: Category classification has been removed - fairshare only needs to disting
 between HOUSEHOLD (shared) and INDIVIDUAL (personal) expenses.
 
 Now supports split mappings - transactions that should be split between HOUSEHOLD and INDIVIDUAL.
+
+REFACTORED: Uses JsonRepository for one_time_mappings and split_mappings persistence.
 """
 
 import re
@@ -17,6 +19,7 @@ from dataclasses import dataclass, asdict
 
 from src.models import ExpenseType
 from src.learned_classifier import LearnedClassifier
+from src.utils import JsonRepository
 
 
 @dataclass
@@ -100,96 +103,27 @@ class TransactionClassifier:
                 r"(?i)(gym|fitness)",
             ]
 
-        # Load one-time transaction mappings
-        self.one_time_mappings = {}
-        self.one_time_mappings_path = one_time_mappings_path
-        if one_time_mappings_path and one_time_mappings_path.exists():
-            self._load_one_time_mappings()
-
-        # Load split transaction mappings
-        self.split_mappings = {}
-        self.split_mappings_path = split_mappings_path
-        if split_mappings_path and split_mappings_path.exists():
-            self._load_split_mappings()
-
-    def _load_one_time_mappings(self) -> None:
-        """Load one-time transaction mappings from JSON file."""
-        import json
-        try:
-            with open(self.one_time_mappings_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                # Filter for this account's mappings
-                self.one_time_mappings = data.get(self.account_id, {})
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[!] Warning: Could not load one-time mappings: {e}")
+        # Use JsonRepository for one-time mappings (account-scoped)
+        if one_time_mappings_path:
+            self.one_time_repo = JsonRepository(one_time_mappings_path, account_id)
+            self.one_time_mappings = self.one_time_repo.data
+        else:
+            self.one_time_repo = None
             self.one_time_mappings = {}
 
-    def _save_one_time_mappings(self) -> None:
-        """Save one-time transaction mappings to JSON file."""
-        import json
-        if not self.one_time_mappings_path:
-            return
-
-        # Load all accounts' mappings
-        all_mappings = {}
-        if self.one_time_mappings_path.exists():
-            try:
-                with open(self.one_time_mappings_path, 'r', encoding='utf-8') as f:
-                    all_mappings = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
-
-        # Update this account's mappings
-        all_mappings[self.account_id] = self.one_time_mappings
-
-        # Save
-        self.one_time_mappings_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.one_time_mappings_path, 'w', encoding='utf-8') as f:
-            json.dump(all_mappings, indent=2, fp=f)
-
-    def _load_split_mappings(self) -> None:
-        """Load split transaction mappings from JSON file."""
-        import json
-        try:
-            with open(self.split_mappings_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                # Filter for this account's mappings
-                account_data = data.get(self.account_id, {})
-                # Convert to SplitPart objects
-                self.split_mappings = {}
-                for txn_key, split_data in account_data.items():
-                    self.split_mappings[txn_key] = [
-                        SplitPart.from_dict(part) for part in split_data
-                    ]
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[!] Warning: Could not load split mappings: {e}")
+        # Use JsonRepository for split mappings (account-scoped)
+        # Note: Split mappings need special handling for SplitPart objects
+        if split_mappings_path:
+            self.split_repo = JsonRepository(split_mappings_path, account_id)
+            # Convert stored dicts to SplitPart objects
             self.split_mappings = {}
-
-    def _save_split_mappings(self) -> None:
-        """Save split transaction mappings to JSON file."""
-        import json
-        if not self.split_mappings_path:
-            return
-
-        # Load all accounts' mappings
-        all_mappings = {}
-        if self.split_mappings_path.exists():
-            try:
-                with open(self.split_mappings_path, 'r', encoding='utf-8') as f:
-                    all_mappings = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
-
-        # Update this account's mappings (convert SplitPart objects to dicts)
-        all_mappings[self.account_id] = {
-            txn_key: [part.to_dict() for part in parts]
-            for txn_key, parts in self.split_mappings.items()
-        }
-
-        # Save
-        self.split_mappings_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.split_mappings_path, 'w', encoding='utf-8') as f:
-            json.dump(all_mappings, indent=2, fp=f)
+            for txn_key, split_data in self.split_repo.data.items():
+                self.split_mappings[txn_key] = [
+                    SplitPart.from_dict(part) for part in split_data
+                ]
+        else:
+            self.split_repo = None
+            self.split_mappings = {}
 
     def _get_transaction_key(
         self, date: str, description: str, amount: Decimal
@@ -307,7 +241,8 @@ class TransactionClassifier:
         """
         txn_key = self._get_transaction_key(date, description, amount)
         self.one_time_mappings[txn_key] = expense_type
-        self._save_one_time_mappings()
+        if self.one_time_repo:
+            self.one_time_repo.save()
 
     def remove_one_time_mapping(
         self, date: str, description: str, amount: Decimal
@@ -326,7 +261,8 @@ class TransactionClassifier:
         txn_key = self._get_transaction_key(date, description, amount)
         if txn_key in self.one_time_mappings:
             del self.one_time_mappings[txn_key]
-            self._save_one_time_mappings()
+            if self.one_time_repo:
+                self.one_time_repo.save()
             return True
         return False
 
@@ -372,7 +308,11 @@ class TransactionClassifier:
 
         txn_key = self._get_transaction_key(date, description, amount)
         self.split_mappings[txn_key] = split_parts
-        self._save_split_mappings()
+
+        # Save to repo (convert SplitPart objects to dicts)
+        if self.split_repo:
+            self.split_repo.data[txn_key] = [part.to_dict() for part in split_parts]
+            self.split_repo.save()
 
     def remove_split_mapping(
         self, date: str, description: str, amount: Decimal
@@ -391,7 +331,8 @@ class TransactionClassifier:
         txn_key = self._get_transaction_key(date, description, amount)
         if txn_key in self.split_mappings:
             del self.split_mappings[txn_key]
-            self._save_split_mappings()
+            if self.split_repo:
+                self.split_repo.delete(txn_key)
             return True
         return False
 
