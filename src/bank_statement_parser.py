@@ -550,6 +550,7 @@ class BankStatementParser:
         lines.append("=" * 80)
 
         expenses = self.get_expenses_only()
+        payments = self.get_payments_only()
 
         if expenses:
             lines.append(f"\nEXPENSES ({len(expenses)} transactions):")
@@ -566,6 +567,22 @@ class BankStatementParser:
             lines.append(f"{'TOTAL':<64} R{total:>10,.2f}")
         else:
             lines.append("\nNo expense transactions found.")
+
+        if payments:
+            lines.append(f"\nPAYMENTS RECEIVED ({len(payments)} transactions):")
+            lines.append("-" * 80)
+            lines.append(f"{'Date':<12} {'Description':<50} {'Amount':>12}")
+            lines.append("-" * 80)
+
+            for trans in payments:
+                desc = trans.description[:50]
+                lines.append(f"{trans.date.strftime('%d %b'):<12} {desc:<50} R{trans.amount:>10,.2f}")
+
+            total = sum(t.amount for t in payments)
+            lines.append("=" * 80)
+            lines.append(f"{'TOTAL':<64} R{total:>10,.2f}")
+        else:
+            lines.append("\nNo payment transactions found.")
 
         lines.append("=" * 80)
 
@@ -586,6 +603,7 @@ class BankStatementParser:
             raise ImportError("openpyxl required for Excel export. Install with: pip install openpyxl")
 
         expenses = self.get_expenses_only()
+        payments = self.get_payments_only()
 
         # Create workbook
         wb = Workbook()
@@ -609,10 +627,19 @@ class BankStatementParser:
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal='center')
 
-        # Write transactions
+        # Write expense transactions (debits)
         for row, trans in enumerate(expenses, 2):
             ws_expenses.cell(row=row, column=1, value=trans.description)
             ws_expenses.cell(row=row, column=2, value=float(trans.amount))
+            ws_expenses.cell(row=row, column=3, value='')  # Category - user fills
+            ws_expenses.cell(row=row, column=4, value='')  # Type - user fills
+
+        # Write payment transactions (credits) - marked with negative amounts
+        # Negative amounts indicate money IN (credits/deposits)
+        row_offset = len(expenses) + 2
+        for row, trans in enumerate(payments, row_offset):
+            ws_expenses.cell(row=row, column=1, value=f"[PAYMENT] {trans.description}")
+            ws_expenses.cell(row=row, column=2, value=-float(trans.amount))  # Negative for income
             ws_expenses.cell(row=row, column=3, value='')  # Category - user fills
             ws_expenses.cell(row=row, column=4, value='')  # Type - user fills
 
@@ -639,7 +666,8 @@ class BankStatementParser:
         # Save
         wb.save(output_path)
 
-        print(f"✓ Exported {len(expenses)} expenses to {output_path}")
+        total_transactions = len(expenses) + len(payments)
+        print(f"✓ Exported {len(expenses)} expenses and {len(payments)} payments ({total_transactions} total) to {output_path}")
         return output_path
 
 
