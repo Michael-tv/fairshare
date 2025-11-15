@@ -1,6 +1,8 @@
 """
 Importer for individual person spreadsheets.
 Each person maintains their own sheet with their income and expenses.
+
+REFACTORED: Now uses ColumnMapper and AmountParser utilities.
 """
 from decimal import Decimal
 from datetime import datetime, date
@@ -12,6 +14,7 @@ from models import (
     Person, Income, Expense, FinancialPeriod,
     IncomeType, ExpenseType, ExpenseCategory
 )
+from src.utils import ColumnMapper, AmountParser
 
 if TYPE_CHECKING:
     from transaction_classifier import TransactionClassifier
@@ -133,19 +136,17 @@ class PersonSheetImporter:
         person: Person,
         period_date: date
     ) -> List[Income]:
-        """Parse the income sheet."""
+        """Parse the income sheet using ColumnMapper utility."""
         incomes = []
 
         # Normalize column names
         df.columns = [str(col).strip().lower() for col in df.columns]
 
-        # Find the relevant columns
-        desc_col = self._find_column(df, ['description', 'desc', 'item', 'source'])
-        amount_col = self._find_column(df, ['amount', 'value', 'total'])
-        type_col = self._find_column(df, ['type', 'category'])
-
-        if desc_col is None or amount_col is None:
-            raise ValueError("Could not find Description and Amount columns in income sheet")
+        # Use ColumnMapper for intelligent column detection
+        mapper = ColumnMapper(df)
+        desc_col = mapper.require('description', 'desc', 'item', 'source', field_name='Description')
+        amount_col = mapper.require('amount', 'value', 'total', field_name='Amount')
+        type_col = mapper.find('type', 'category')  # Optional
 
         for idx, row in df.iterrows():
             # Skip empty rows
@@ -153,7 +154,7 @@ class PersonSheetImporter:
                 continue
 
             description = str(row[desc_col]).strip()
-            amount = self._parse_amount(row[amount_col])
+            amount = AmountParser.parse(row[amount_col])
 
             if amount <= 0:
                 continue
@@ -181,20 +182,18 @@ class PersonSheetImporter:
         person: Person,
         period_date: date
     ) -> List[Expense]:
-        """Parse the expenses sheet (shared costs only)."""
+        """Parse the expenses sheet using ColumnMapper and AmountParser utilities."""
         expenses = []
 
         # Normalize column names
         df.columns = [str(col).strip().lower() for col in df.columns]
 
-        # Find the relevant columns
-        desc_col = self._find_column(df, ['description', 'desc', 'item', 'expense'])
-        amount_col = self._find_column(df, ['amount', 'value', 'total', 'cost'])
-        category_col = self._find_column(df, ['category'])
-        type_col = self._find_column(df, ['type', 'expense type', 'split type'])
-
-        if desc_col is None or amount_col is None:
-            raise ValueError("Could not find Description and Amount columns in expenses sheet")
+        # Use ColumnMapper for intelligent column detection
+        mapper = ColumnMapper(df)
+        desc_col = mapper.require('description', 'desc', 'item', 'expense', field_name='Description')
+        amount_col = mapper.require('amount', 'value', 'total', 'cost', field_name='Amount')
+        category_col = mapper.find('category')  # Optional
+        type_col = mapper.find('type', 'expense type', 'split type')  # Optional
 
         for idx, row in df.iterrows():
             # Skip empty rows
@@ -202,7 +201,7 @@ class PersonSheetImporter:
                 continue
 
             description = str(row[desc_col]).strip()
-            amount = self._parse_amount(row[amount_col])
+            amount = AmountParser.parse(row[amount_col])
 
             if amount <= 0:
                 continue
@@ -268,35 +267,6 @@ class PersonSheetImporter:
                 ))
 
         return expenses
-
-    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> Optional[str]:
-        """Find a column by trying multiple possible names."""
-        for col in df.columns:
-            col_lower = str(col).lower().strip()
-            for possible in possible_names:
-                if possible.lower() in col_lower:
-                    return col
-        return None
-
-    def _parse_amount(self, value) -> Decimal:
-        """Parse an amount value, handling various formats."""
-        if pd.isna(value):
-            return Decimal("0")
-
-        # Convert to string and clean
-        value_str = str(value).strip()
-
-        # Remove currency symbols and spaces
-        value_str = value_str.replace("R", "").replace("$", "").replace(",", "").strip()
-
-        # Handle parentheses as negative
-        if value_str.startswith("(") and value_str.endswith(")"):
-            value_str = "-" + value_str[1:-1]
-
-        try:
-            return Decimal(value_str)
-        except:
-            return Decimal("0")
 
     def _categorize_income(self, text: str) -> IncomeType:
         """Categorize income based on description."""
