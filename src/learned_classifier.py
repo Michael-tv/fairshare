@@ -19,13 +19,14 @@ class LearnedClassifier:
     """
     Learns classification rules from user corrections.
 
-    Stores learned rules in JSON format:
+    Stores learned rules in JSON format (account-specific):
     {
-        "woolworths rondebosch": {
-            "category": "GROCERIES",
-            "type": "HOUSEHOLD",
-            "count": 5,  # Number of times this correction was made
-            "confidence": 100  # Confidence in this rule (100 = user explicitly set it)
+        "account_123": {
+            "woolworths rondebosch": {
+                "type": "HOUSEHOLD",
+                "count": 5,  # Number of times this correction was made
+                "confidence": 100  # Confidence in this rule (100 = user explicitly set it)
+            }
         }
     }
 
@@ -33,69 +34,58 @@ class LearnedClassifier:
     - "Woolworths Rondebosch" vs "WOOLWORTHS RONDEBOSCH"
     - "Woolworths Rondebosch 123" vs "Woolworths Rondebosch 456"
     - Typos and slight variations
+
+    NOTE: Category classification has been removed - fairshare only needs type classification.
     """
 
-    def __init__(self, learned_rules_path: Path, similarity_threshold: int = 85):
+    def __init__(
+        self,
+        learned_rules_path: Path,
+        account_id: str,
+        similarity_threshold: int = 85
+    ):
         """
         Initialize learned classifier.
 
         Args:
             learned_rules_path: Path to JSON file storing learned rules
+            account_id: Unique identifier for the account
             similarity_threshold: Minimum fuzzy match score (0-100) to consider a match
         """
         self.rules_path = learned_rules_path
+        self.account_id = account_id
         self.similarity_threshold = similarity_threshold
         self.rules: Dict[str, Dict] = {}
+        self.all_rules: Dict[str, Dict[str, Dict]] = {}  # All accounts' rules
         self._load_rules()
 
-    @staticmethod
-    def _normalize_category(category: str) -> Optional[str]:
-        """
-        Normalize and validate a category string.
-
-        Args:
-            category: Category string to normalize
-
-        Returns:
-            Normalized category key (e.g., "GROCERIES") or None if invalid
-        """
-        if not category:
-            return None
-
-        # Convert to uppercase and strip whitespace
-        category_upper = category.upper().strip().replace(" ", "_")
-
-        # Check if it's already a valid key
-        if category_upper in DEFAULT_EXPENSE_CATEGORIES:
-            return category_upper
-
-        # Try to find by display name (case-insensitive)
-        for key, display_name in DEFAULT_EXPENSE_CATEGORIES.items():
-            if display_name.upper() == category_upper.replace("_", " "):
-                return key
-
-        # Default to OTHER if not found
-        return "OTHER"
-
     def _load_rules(self) -> None:
-        """Load learned rules from JSON file."""
+        """Load learned rules from JSON file (account-specific)."""
         if self.rules_path.exists():
             try:
                 with open(self.rules_path, 'r', encoding='utf-8') as f:
-                    self.rules = json.load(f)
+                    self.all_rules = json.load(f)
+                    # Get this account's rules
+                    self.rules = self.all_rules.get(self.account_id, {})
             except (json.JSONDecodeError, IOError) as e:
                 print(f"[!] Warning: Could not load learned rules: {e}")
+                self.all_rules = {}
                 self.rules = {}
         else:
+            self.all_rules = {}
             self.rules = {}
 
     def _save_rules(self) -> None:
-        """Save learned rules to JSON file."""
+        """Save learned rules to JSON file (account-specific)."""
+        # Update this account's rules in the global structure
+        self.all_rules[self.account_id] = self.rules
+
+        # Save all rules
         self.rules_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.rules_path, 'w', encoding='utf-8') as f:
-            json.dump(self.rules, indent=2, fp=f)
+            json.dump(self.all_rules, indent=2, fp=f)
 
-    def classify(self, description: str) -> Optional[Tuple[str, str]]:
+    def classify(self, description: str) -> Optional[str]:
         """
         Classify a transaction using learned rules with fuzzy matching.
 
@@ -103,7 +93,7 @@ class LearnedClassifier:
             description: Transaction description
 
         Returns:
-            Tuple of (category, type) if match found, None otherwise
+            Type (HOUSEHOLD or INDIVIDUAL) if match found, None otherwise
         """
         if not self.rules:
             return None
@@ -114,7 +104,7 @@ class LearnedClassifier:
         # Try exact match first (fastest)
         if normalized in self.rules:
             rule = self.rules[normalized]
-            return (rule['category'], rule['type'])
+            return rule['type']
 
         # Try fuzzy match
         match = process.extractOne(
@@ -127,7 +117,7 @@ class LearnedClassifier:
         if match:
             matched_key, score, _ = match
             rule = self.rules[matched_key]
-            return (rule['category'], rule['type'])
+            return rule['type']
 
         return None
 
@@ -152,11 +142,9 @@ class LearnedClassifier:
         # Read transaction file
         df = pd.read_excel(transaction_file)
 
-        # Find rows with user corrections
-        # User corrections are where user_category or user_type is not empty
-        has_category_correction = df['user_category'].notna() & (df['user_category'] != '')
+        # Find rows with user type corrections
         has_type_correction = df['user_type'].notna() & (df['user_type'] != '')
-        corrections = df[has_category_correction | has_type_correction].copy()
+        corrections = df[has_type_correction].copy()
 
         if len(corrections) == 0:
             if verbose:
@@ -169,17 +157,8 @@ class LearnedClassifier:
         for _, row in corrections.iterrows():
             description = str(row['description']).lower().strip()
 
-            # Get final category and type (user override takes priority)
-            category = row['user_category'] if pd.notna(row['user_category']) and row['user_category'] != '' else row['auto_category']
+            # Get final type (user override takes priority)
             exp_type = row['user_type'] if pd.notna(row['user_type']) and row['user_type'] != '' else row['auto_type']
-
-            # Normalize and validate category
-            normalized_category = self._normalize_category(category)
-            if not normalized_category:
-                if verbose:
-                    print(f"  [!] Skipping invalid category: {category}")
-                continue
-            category = normalized_category
 
             # Normalize and validate expense type (handle both "HOUSEHOLD" and "Household")
             exp_type_normalized = exp_type.upper().replace(" ", "_")
@@ -195,10 +174,9 @@ class LearnedClassifier:
             if description in self.rules:
                 # Update existing rule
                 existing = self.rules[description]
-                if existing['category'] != category or existing['type'] != exp_type:
+                if existing['type'] != exp_type:
                     # User changed their mind, update the rule
                     self.rules[description] = {
-                        'category': category,
                         'type': exp_type,
                         'count': existing.get('count', 1) + 1,
                         'confidence': 100
@@ -210,7 +188,6 @@ class LearnedClassifier:
             else:
                 # New rule
                 self.rules[description] = {
-                    'category': category,
                     'type': exp_type,
                     'count': 1,
                     'confidence': 100
@@ -263,22 +240,17 @@ class LearnedClassifier:
         if not self.rules:
             return {
                 'total_rules': 0,
-                'categories': {},
                 'types': {}
             }
 
-        categories = {}
         types = {}
 
         for rule in self.rules.values():
-            cat = rule['category']
             typ = rule['type']
-            categories[cat] = categories.get(cat, 0) + 1
             types[typ] = types.get(typ, 0) + 1
 
         return {
             'total_rules': len(self.rules),
-            'categories': categories,
             'types': types
         }
 
@@ -297,7 +269,6 @@ class LearnedClassifier:
         for description, rule in sorted(self.rules.items()):
             data.append({
                 'description': description,
-                'category': rule['category'],
                 'type': rule['type'],
                 'count': rule.get('count', 1),
                 'confidence': rule.get('confidence', 100)
@@ -305,7 +276,7 @@ class LearnedClassifier:
 
         df = pd.DataFrame(data)
         df.to_excel(output_file, index=False)
-        print(f"  Exported {len(data)} rules to: {output_file}")
+        print(f"  Exported {len(data)} rules for account '{self.account_id}' to: {output_file}")
 
     def apply_to_transactions(
         self,
@@ -315,8 +286,8 @@ class LearnedClassifier:
         """
         Apply learned rules to re-classify transactions in an existing file.
 
-        This updates the auto_category and auto_type columns based on learned rules,
-        while preserving any user_category and user_type corrections.
+        This updates the auto_type column based on learned rules,
+        while preserving any user_type corrections.
 
         Args:
             transaction_file: Path to Excel file with transactions
@@ -346,23 +317,12 @@ class LearnedClassifier:
             result = self.classify(description)
 
             if result:
-                new_category, new_type = result
-                old_category = row['auto_category']
+                new_type = result
                 old_type = row['auto_type']
-                old_final_category = row['final_category']
                 old_final_type = row['final_type']
 
-                # Calculate what final values should be
-                user_cat = row['user_category']
+                # Calculate what final_type should be
                 user_typ = row['user_type']
-
-                # Determine correct final_category
-                if pd.isna(user_cat) or user_cat == '':
-                    correct_final_category = new_category
-                else:
-                    # User has override - normalize it to ensure it's in key format
-                    normalized_user_cat = self._normalize_category(user_cat)
-                    correct_final_category = normalized_user_cat if normalized_user_cat else new_category
 
                 # Determine correct final_type
                 if pd.isna(user_typ) or user_typ == '':
@@ -378,16 +338,12 @@ class LearnedClassifier:
 
                 # Check if any values need updating
                 needs_update = (
-                    old_category != new_category or
                     old_type != new_type or
-                    old_final_category != correct_final_category or
                     old_final_type != correct_final_type
                 )
 
                 if needs_update:
-                    df.at[idx, 'auto_category'] = new_category
                     df.at[idx, 'auto_type'] = new_type
-                    df.at[idx, 'final_category'] = correct_final_category
                     df.at[idx, 'final_type'] = correct_final_type
                     reclassified += 1
                 else:
