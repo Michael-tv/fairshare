@@ -43,8 +43,8 @@ class TransactionClassifierTab(QWidget):
 
         # Add tabs
         self.tabs.addTab(self.create_settings_tab(), "Settings")
-        self.tabs.addTab(self.create_type_patterns_tab(), "Type Patterns (Account-Specific)")
-        self.tabs.addTab(self.create_learned_rules_tab(), "Learned Rules (Account-Specific)")
+        self.tabs.addTab(self.create_type_patterns_tab(), "Type Patterns")
+        self.tabs.addTab(self.create_learned_rules_tab(), "Learned Rules")
         self.tabs.addTab(self.create_one_time_mappings_tab(), "One-Time Mappings")
         self.tabs.addTab(self.create_split_mappings_tab(), "Split Mappings")
         self.tabs.addTab(self.create_test_tab(), "Test Classification")
