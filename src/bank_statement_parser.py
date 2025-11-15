@@ -177,7 +177,7 @@ class BankStatementParser:
                         return self._parse_amount(value)
                     elif converter == datetime:
                         return self._parse_date_string(value, field_cfg)
-                    return value.strip()
+                    return value.strip() if value else default
 
             return default
 
@@ -194,6 +194,9 @@ class BankStatementParser:
 
     def _parse_date_string(self, date_str: str, config: Dict[str, Any]) -> datetime:
         """Parse a date string using format from config."""
+        if not date_str:
+            return datetime.now()
+
         date_format = config.get('format', '%d %b %Y')
 
         # Apply month translation if specified
