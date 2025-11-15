@@ -3,9 +3,9 @@
 # This template parses FNB Fusion Private Clients account statements (PDF format).
 # These are premium accounts with bilingual (English/Afrikaans) statements.
 #
-# Example transaction line:
-# "19 Mei POS Purchase Wahoo Fitness Llc 431835*7509 18 May 277.44 8,628.85 Kt"
-# "25 Sep Debit Order Spotify SA 12345*6789 24 Sep 119.00 8,509.85 Kt"
+# Example transaction lines:
+# Money IN (marked with "Kt"):  "19 Mei Salary Deposit 277.44 8,628.85 Kt"
+# Money OUT (no indicator):     "25 Sep Debit Order Spotify SA 12345*6789 24 Sep 119.00 8,509.85"
 
 bank_name: "FNB"
 account_type: "Fusion Account"
@@ -23,9 +23,10 @@ detection:
 # Transaction parsing configuration
 parsing:
   # Transaction pattern for Fusion accounts
-  # Format: DD Mon Description Amount Balance Kt/Dt
+  # Format: DD Mon Description Amount Balance [Kt]
+  # Note: Money OUT (Dt) transactions have NO indicator, Money IN transactions have "Kt"
   # Note: Bilingual month names (Mei, Okt, Des for Afrikaans)
-  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+(?:(?P<balance>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+)?(?P<indicator>Kt|Dt)'
+  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+(?:(?P<balance>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+)?(?P<indicator>Kt)?'
 
   # Date parsing configuration
   date:
@@ -51,8 +52,8 @@ parsing:
     # Credit indicator
     credit_indicator:
       group: "indicator"
-      value: "Kt"  # Kt = credit/deposit, Dt = debit/expense
-      invert: false
+      value: "Kt"  # Money IN transactions are marked with "Kt"
+      invert: false  # Money OUT transactions have NO indicator (treated as debit by default)
 
   # Description extraction
   description:
