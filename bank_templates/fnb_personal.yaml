@@ -47,13 +47,13 @@ parsing:
     decimal_separator: "."
     thousands_separator: ","
 
-    # Debit indicator (Kt = credit/deposit, Dt = debit/expense)
+    # Credit indicator (Kt = credit/deposit, Dt = debit/expense)
     # Note: In FNB personal accounts, Kt means money IN (credit)
     # and Dt means money OUT (debit/expense)
     credit_indicator:
       group: "indicator"
       value: "Kt"
-      invert: true  # Kt is credit, Dt is debit
+      invert: false  # Kt is credit, Dt is debit
 
   # Description extraction
   description:

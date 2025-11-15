@@ -52,7 +52,7 @@ parsing:
     credit_indicator:
       group: "indicator"
       value: "Kt"  # Kt = credit/deposit, Dt = debit/expense
-      invert: true
+      invert: false
 
   # Description extraction
   description:
