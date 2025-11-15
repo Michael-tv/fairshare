@@ -448,7 +448,7 @@ class BankStatementParser:
         credit_value = credit_cfg.get('value', 'Cr')
         debit_value = credit_cfg.get('debit_value', 'Dr')
 
-        indicator = groups.get(indicator_group, '').strip()
+        indicator = (groups.get(indicator_group) or '').strip()
 
         # Check if we need to invert logic
         invert = credit_cfg.get('invert', False)
@@ -464,7 +464,7 @@ class BankStatementParser:
                           desc_cfg: Dict[str, Any]) -> str:
         """Parse and clean up description."""
         desc_group = desc_cfg.get('group', 'description')
-        description = groups.get(desc_group, '').strip()
+        description = (groups.get(desc_group) or '').strip()
 
         # Apply cleanup rules
         cleanup_rules = desc_cfg.get('cleanup', [])
