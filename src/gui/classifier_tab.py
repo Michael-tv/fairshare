@@ -436,8 +436,10 @@ class TransactionClassifierTab(QWidget):
             rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
             similarity_threshold = self.similarity_threshold_spin.value()
 
-            # Create classifier
+            # Create classifier with default account_id for testing purposes
+            # Note: For account-specific operations, individual classifiers are created per account
             self.classifier = TransactionClassifier(
+                account_id="default",  # Placeholder for general testing
                 learned_rules_path=rules_path,
                 use_learned=use_learned
             )
