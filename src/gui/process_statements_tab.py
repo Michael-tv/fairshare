@@ -39,7 +39,7 @@ class ProcessingThread(QThread):
         """Run the processing in background."""
         try:
             self.progress.emit("Processing statement...")
-            success, error = self.processor.process_statement(self.statement_id, self.force)
+            success, error = self.processor.process_full(self.statement_id, self.force)
 
             if success:
                 self.finished.emit(True, "Statement processed successfully")
@@ -461,18 +461,52 @@ class ProcessStatementsTab(QWidget):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(5)
+        layout.setSpacing(3)
 
         if record.status == ProcessingStatus.UNPROCESSED.value:
-            # Process button
-            process_btn = QPushButton("Process")
-            process_btn.clicked.connect(lambda: self.process_statement(record.id))
+            # Process Full button
+            process_btn = QPushButton("Process Full")
+            process_btn.clicked.connect(lambda: self.process_full_statement(record.id))
             layout.addWidget(process_btn)
-        else:
-            # Re-extract button
-            reextract_btn = QPushButton("Re-extract")
-            reextract_btn.clicked.connect(lambda: self.reextract_statement(record.id))
-            layout.addWidget(reextract_btn)
+
+        elif record.status == ProcessingStatus.EXTRACTED.value:
+            # Re-Parse button
+            reparse_btn = QPushButton("Re-Parse")
+            reparse_btn.setToolTip("Re-extract transactions from PDF")
+            reparse_btn.clicked.connect(lambda: self.parse_statement(record.id, force=True))
+            layout.addWidget(reparse_btn)
+
+            # Classify button
+            classify_btn = QPushButton("Classify")
+            classify_btn.setToolTip("Classify extracted transactions")
+            classify_btn.clicked.connect(lambda: self.classify_statement(record.id))
+            layout.addWidget(classify_btn)
+
+        elif record.status == ProcessingStatus.CLASSIFIED.value:
+            # Re-Parse button
+            reparse_btn = QPushButton("Re-Parse")
+            reparse_btn.setToolTip("Re-extract transactions from PDF")
+            reparse_btn.clicked.connect(lambda: self.reparse_statement(record.id))
+            layout.addWidget(reparse_btn)
+
+            # Re-Classify button
+            reclassify_btn = QPushButton("Re-Classify")
+            reclassify_btn.setToolTip("Re-classify existing transactions")
+            reclassify_btn.clicked.connect(lambda: self.classify_statement(record.id, force=True))
+            layout.addWidget(reclassify_btn)
+
+        elif record.status == ProcessingStatus.ERROR.value:
+            # Re-Parse button
+            reparse_btn = QPushButton("Re-Parse")
+            reparse_btn.setToolTip("Re-extract transactions from PDF")
+            reparse_btn.clicked.connect(lambda: self.parse_statement(record.id, force=True))
+            layout.addWidget(reparse_btn)
+
+            # Process Full button
+            process_btn = QPushButton("Process Full")
+            process_btn.setToolTip("Re-run full pipeline")
+            process_btn.clicked.connect(lambda: self.process_full_statement(record.id, force=True))
+            layout.addWidget(process_btn)
 
         return widget
 
@@ -573,38 +607,72 @@ class ProcessStatementsTab(QWidget):
 
         return widget
 
-    def process_statement(self, statement_id: str):
-        """Process a single statement."""
+    def parse_statement(self, statement_id: str, force: bool = False):
+        """Extract/parse transactions from PDF only."""
+        if not self.processor:
+            return
+
+        self.status_label.setText("Parsing statement...")
+        success, error = self.processor.extract_only(statement_id, force=force)
+
+        if success:
+            self.status_label.setText("Statement parsed successfully")
+        else:
+            self.status_label.setText(f"Error: {error}")
+            QMessageBox.warning(self, "Parse Error", error or "Unknown error")
+
+        self.refresh_table()
+
+    def classify_statement(self, statement_id: str, force: bool = False):
+        """Classify transactions only."""
+        if not self.processor:
+            return
+
+        self.status_label.setText("Classifying transactions...")
+        success, error = self.processor.classify_only(statement_id, force=force)
+
+        if success:
+            self.status_label.setText("Transactions classified successfully")
+        else:
+            self.status_label.setText(f"Error: {error}")
+            QMessageBox.warning(self, "Classification Error", error or "Unknown error")
+
+        self.refresh_table()
+
+    def process_full_statement(self, statement_id: str, force: bool = False):
+        """Process a single statement (full pipeline: extract + classify)."""
         if not self.processor:
             return
 
         # Start processing thread
-        self.status_label.setText("Processing statement...")
-        self.processing_thread = ProcessingThread(self.processor, statement_id, force=False)
+        self.status_label.setText("Processing statement (full pipeline)...")
+        self.processing_thread = ProcessingThread(self.processor, statement_id, force=force)
         self.processing_thread.finished.connect(
             lambda success, msg: self.on_processing_finished(success, msg, statement_id)
         )
         self.processing_thread.start()
 
-    def reextract_statement(self, statement_id: str):
-        """Re-extract a statement with confirmation."""
+    def reparse_statement(self, statement_id: str):
+        """Re-parse a statement with confirmation."""
         reply = QMessageBox.question(
             self,
-            "Confirm Re-extraction",
-            "This will delete existing processed data and re-extract from the PDF. Continue?",
+            "Confirm Re-Parse",
+            "This will re-extract transactions from the PDF, replacing existing raw data. "
+            "You will need to re-classify afterwards. Continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
-            # Delete existing data
-            success, error = self.processor.delete_statement_data(statement_id)
-            if not success:
-                QMessageBox.warning(self, "Error", f"Failed to delete data: {error}")
-                return
+            self.parse_statement(statement_id, force=True)
 
-            # Process again
-            self.process_statement(statement_id)
+    def process_statement(self, statement_id: str):
+        """Deprecated: Use process_full_statement() instead. Maintained for backward compatibility."""
+        self.process_full_statement(statement_id, force=False)
+
+    def reextract_statement(self, statement_id: str):
+        """Deprecated: Use reparse_statement() instead. Maintained for backward compatibility."""
+        self.reparse_statement(statement_id)
 
     def on_processing_finished(self, success: bool, message: str, statement_id: str):
         """Handle processing completion."""
