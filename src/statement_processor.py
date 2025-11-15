@@ -541,7 +541,7 @@ class StatementProcessor:
                     assigned_users.append("")
 
             # Add classification columns
-            df['Type'] = types
+            df['Expense Type'] = types  # HOUSEHOLD, INDIVIDUAL, or SPLIT
             df['Assigned User'] = assigned_users
 
             # Calculate breakdown
@@ -551,7 +551,7 @@ class StatementProcessor:
 
             for _, row in df.iterrows():
                 amount = float(row['Amount'])
-                exp_type = row['Type']
+                exp_type = row['Expense Type']
                 assigned_user = row['Assigned User']
 
                 if not row['Is Credit']:  # Only count expenses
@@ -590,6 +590,7 @@ class StatementProcessor:
             'Date': [t.date for t in transactions],
             'Description': [t.description for t in transactions],
             'Amount': [float(t.amount) for t in transactions],
+            'Transaction Type': ['CREDIT' if t.is_credit else 'DEBIT' for t in transactions],
             'Is Credit': [t.is_credit for t in transactions],
             'Account Type': [t.account_type for t in transactions],
             'Card Last Digits': [t.card_last_digits or '' for t in transactions],
@@ -639,16 +640,20 @@ class StatementProcessor:
     def _get_statements_dir(self, record: StatementRecord) -> Path:
         """Get statements directory for an account"""
         # Find the account's processed folder
-        for user in self.config.users:
-            for account in user.accounts:
+        # Check shared accounts first if this is a shared account
+        if record.is_shared_account:
+            for account in self.config.shared_accounts:
                 if account.name == record.account_name:
                     base_dir = self.working_dir / account.processed_folder
                     return base_dir / "statements"
-
-        for account in self.config.shared_accounts:
-            if account.name == record.account_name:
-                base_dir = self.working_dir / account.processed_folder
-                return base_dir / "statements"
+        else:
+            # Check user accounts - match by both account name AND owner
+            for user in self.config.users:
+                if user.name == record.account_owner:
+                    for account in user.accounts:
+                        if account.name == record.account_name:
+                            base_dir = self.working_dir / account.processed_folder
+                            return base_dir / "statements"
 
         # Fallback
         return self.working_dir / "processed" / "statements"
@@ -656,16 +661,20 @@ class StatementProcessor:
     def _get_months_dir(self, record: StatementRecord) -> Path:
         """Get months directory for an account"""
         # Find the account's processed folder
-        for user in self.config.users:
-            for account in user.accounts:
+        # Check shared accounts first if this is a shared account
+        if record.is_shared_account:
+            for account in self.config.shared_accounts:
                 if account.name == record.account_name:
                     base_dir = self.working_dir / account.processed_folder
                     return base_dir / "months"
-
-        for account in self.config.shared_accounts:
-            if account.name == record.account_name:
-                base_dir = self.working_dir / account.processed_folder
-                return base_dir / "months"
+        else:
+            # Check user accounts - match by both account name AND owner
+            for user in self.config.users:
+                if user.name == record.account_owner:
+                    for account in user.accounts:
+                        if account.name == record.account_name:
+                            base_dir = self.working_dir / account.processed_folder
+                            return base_dir / "months"
 
         # Fallback
         return self.working_dir / "processed" / "months"
