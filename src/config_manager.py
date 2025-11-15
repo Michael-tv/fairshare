@@ -30,6 +30,15 @@ class AccountConfig:
     statements_folder: str
     processed_folder: str
     account_type: str
+    household_patterns: List[str] = None  # Account-specific household patterns
+    individual_patterns: List[str] = None  # Account-specific individual patterns
+
+    def __post_init__(self):
+        """Initialize default values for optional fields"""
+        if self.household_patterns is None:
+            self.household_patterns = []
+        if self.individual_patterns is None:
+            self.individual_patterns = []
 
 
 @dataclass
@@ -50,6 +59,15 @@ class SharedAccountConfig:
     statements_folder: str
     processed_folder: str
     account_type: str
+    household_patterns: List[str] = None  # Account-specific household patterns
+    individual_patterns: List[str] = None  # Account-specific individual patterns
+
+    def __post_init__(self):
+        """Initialize default values for optional fields"""
+        if self.household_patterns is None:
+            self.household_patterns = []
+        if self.individual_patterns is None:
+            self.individual_patterns = []
 
 
 @dataclass
@@ -197,7 +215,9 @@ class ConfigManager:
                         name=a_data["name"],
                         statements_folder=a_data["statements_folder"],
                         processed_folder=a_data["processed_folder"],
-                        account_type=a_data["account_type"]
+                        account_type=a_data["account_type"],
+                        household_patterns=a_data.get("household_patterns", []),
+                        individual_patterns=a_data.get("individual_patterns", [])
                     )
                 )
 
@@ -240,7 +260,9 @@ class ConfigManager:
                     name=s_data["name"],
                     statements_folder=s_data["statements_folder"],
                     processed_folder=s_data["processed_folder"],
-                    account_type=s_data["account_type"]
+                    account_type=s_data["account_type"],
+                    household_patterns=s_data.get("household_patterns", []),
+                    individual_patterns=s_data.get("individual_patterns", [])
                 )
             )
 

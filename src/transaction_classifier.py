@@ -1,13 +1,16 @@
 """
 Transaction Classifier
 
-Auto-classifies transactions into categories and types (SHARED/INDIVIDUAL).
+Auto-classifies transactions into types (HOUSEHOLD/INDIVIDUAL).
+
+Note: Category classification has been removed - fairshare only needs to distinguish
+between HOUSEHOLD (shared) and INDIVIDUAL (personal) expenses.
 """
 
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Dict, List
 
 from models import ExpenseType
 from src.learned_classifier import LearnedClassifier
@@ -18,130 +21,111 @@ class TransactionClassifier:
 
     def __init__(
         self,
+        account_id: str,
         learned_rules_path: Optional[Path] = None,
-        use_learned: bool = True
+        use_learned: bool = True,
+        type_patterns_config: Optional[Dict[str, List[str]]] = None,
+        one_time_mappings_path: Optional[Path] = None
     ):
         """
         Initialize classifier with classification rules
 
         Args:
+            account_id: Unique identifier for the account (used for account-specific rules)
             learned_rules_path: Path to learned rules JSON file (optional)
             use_learned: Enable learned classifier (default: True)
+            type_patterns_config: Dict with 'household' and 'individual' pattern lists
+            one_time_mappings_path: Path to one-time transaction mappings JSON file
         """
-        # Initialize learned classifier if enabled
+        self.account_id = account_id
+
+        # Initialize learned classifier if enabled (account-specific)
         self.use_learned = use_learned
         if use_learned and learned_rules_path:
-            self.learned_classifier = LearnedClassifier(learned_rules_path)
+            self.learned_classifier = LearnedClassifier(
+                learned_rules_path,
+                account_id=account_id
+            )
         else:
             self.learned_classifier = None
 
-        # Merchant patterns for category classification (using string keys now)
-        self.category_patterns = {
-            "GROCERIES": [
-                r"(?i)(spar|woolworths|checkers|pick\s*n\s*pay|pnp|makro|food|supermarket|grocery)",
-                r"(?i)(fruit|veg|fresh|tops)",
-            ],
-            "FUEL": [
-                r"(?i)(engen|shell|bp|sasol|total|caltex|fuel|petrol|diesel)",
-            ],
-            "ENTERTAINMENT": [
-                r"(?i)(cinema|movie|netflix|dstv|spotify|showmax|mnet|zoo)",
-                r"(?i)(restaurant|cafe|coffee|pizza|burger|sushi)",
-                r"(?i)(bar|pub|entertainment)",
-            ],
-            "UTILITIES": [
-                r"(?i)(electricity|water|municipal|city\s*of)",
-                r"(?i)(internet|wifi|afrihost|mweb|telkom|vodacom|mtn|cell\s*c|payfast|gas)",
-            ],
-            "INSURANCE": [
-                r"(?i)(insurance|insure|outsurance|discovery|momentum)",
-            ],
-            "MEDICAL_AID": [
-                r"(?i)(pharmacy|chemist|clicks|dis-chem|medicross)",
-                r"(?i)(doctor|dr\s|drs\s|hospital|clinic|medical|gap\s*cover)",
-                r"(?i)(dentist|optometrist|animal)",
-            ],
-            "CLOTHING": [
-                r"(?i)(clothing|fashion|edgars|truworths|mr\s*price|ackermans|shoes|baby\s*city)",
-                r"(?i)(sport\s*scene|nike|adidas|puma)",
-            ],
-            "HOUSEHOLD": [
-                r"(?i)(game|builders|leroy|cashbuild|hardware|mica|chamberlain)",
-                r"(?i)(home|furniture|@home|crazy\s*plastics|outdoor|4x4)",
-            ],
-            "TRANSPORT": [
-                r"(?i)(uber|bolt|taxi)",
-                r"(?i)(toll|parking|plaza)",
-                r"(?i)(car\s*wash|service)",
-            ],
-            "SCHOOL_FEES": [
-                r"(?i)(school|university|college|tuition|fees)",
-                r"(?i)(book|stationery)",
-            ],
-            "SUBSCRIPTIONS": [
-                r"(?i)(netflix|dstv|subscription|spotify|showmax)",
-            ],
-            "LEVIES": [
-                r"(?i)(levie|levy)",
-            ],
-            "RATES": [
-                r"(?i)(rates)",
-            ],
-            "DOMESTIC_HELP": [
-                r"(?i)(cleaning|cleaner|garden|domestic|petrus|marta)",
-            ],
-            "MAINTENANCE": [
-                r"(?i)(maintenance|repair)",
-            ],
-            "BANK_CHARGES": [
-                r"(?i)(bank|account\s*fee|fnb|absa)",
-            ],
-            "LOANS": [
-                r"(?i)(bond|loan|finance|mortgage)",
-            ],
-            "TAX": [
-                r"(?i)(tax|paye)",
-            ],
-            "UIF": [
-                r"(?i)(uif)",
-            ],
-        }
+        # Patterns for determining if household or individual (account-specific)
+        # These can be customized per account via config
+        if type_patterns_config:
+            self.household_patterns = type_patterns_config.get('household', [])
+            self.individual_patterns = type_patterns_config.get('individual', [])
+        else:
+            # Default patterns (can be overridden via config)
+            self.household_patterns = [
+                r"(?i)(groceries|spar|woolworths|checkers)",
+                r"(?i)(electricity|water|rates|levies)",
+                r"(?i)(internet|dstv|netflix)",
+                r"(?i)(restaurant|takeaway|uber\s*eats)",
+            ]
 
-        # Patterns for determining if shared or individual
-        self.shared_patterns = [
-            r"(?i)(groceries|spar|woolworths|checkers)",
-            r"(?i)(electricity|water|rates|levies)",
-            r"(?i)(internet|dstv|netflix)",
-            r"(?i)(restaurant|takeaway|uber\s*eats)",
-        ]
+            self.individual_patterns = [
+                r"(?i)(pharmacy.*prescription)",
+                r"(?i)(clothing|fashion)",
+                r"(?i)(personal|private)",
+                r"(?i)(gym|fitness)",
+            ]
 
-        self.individual_patterns = [
-            r"(?i)(pharmacy.*prescription)",
-            r"(?i)(clothing|fashion)",
-            r"(?i)(personal|private)",
-            r"(?i)(gym|fitness)",
-        ]
+        # Load one-time transaction mappings
+        self.one_time_mappings = {}
+        self.one_time_mappings_path = one_time_mappings_path
+        if one_time_mappings_path and one_time_mappings_path.exists():
+            self._load_one_time_mappings()
 
-    def classify_category(self, description: str) -> str:
+    def _load_one_time_mappings(self) -> None:
+        """Load one-time transaction mappings from JSON file."""
+        import json
+        try:
+            with open(self.one_time_mappings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # Filter for this account's mappings
+                self.one_time_mappings = data.get(self.account_id, {})
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"[!] Warning: Could not load one-time mappings: {e}")
+            self.one_time_mappings = {}
+
+    def _save_one_time_mappings(self) -> None:
+        """Save one-time transaction mappings to JSON file."""
+        import json
+        if not self.one_time_mappings_path:
+            return
+
+        # Load all accounts' mappings
+        all_mappings = {}
+        if self.one_time_mappings_path.exists():
+            try:
+                with open(self.one_time_mappings_path, 'r', encoding='utf-8') as f:
+                    all_mappings = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Update this account's mappings
+        all_mappings[self.account_id] = self.one_time_mappings
+
+        # Save
+        self.one_time_mappings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.one_time_mappings_path, 'w', encoding='utf-8') as f:
+            json.dump(all_mappings, indent=2, fp=f)
+
+    def _get_transaction_key(
+        self, date: str, description: str, amount: Decimal
+    ) -> str:
         """
-        Classify transaction category based on description
+        Create a unique key for a transaction.
 
         Args:
+            date: Transaction date (YYYY-MM-DD format)
             description: Transaction description
+            amount: Transaction amount
 
         Returns:
-            Category string (e.g., "GROCERIES", "FUEL", etc.)
+            Unique key string
         """
-        description_lower = description.lower()
-
-        # Check each category's patterns
-        for category, patterns in self.category_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, description_lower):
-                    return category
-
-        # Default to OTHER if no match
-        return "OTHER"
+        return f"{date}|{description.lower().strip()}|{amount}"
 
     def classify_type(
         self, description: str, amount: Decimal, is_shared_account: bool = False
@@ -167,7 +151,7 @@ class TransactionClassifier:
             return ExpenseType.HOUSEHOLD
 
         # Personal accounts: check for household patterns
-        for pattern in self.shared_patterns:
+        for pattern in self.household_patterns:
             if re.search(pattern, description, re.IGNORECASE):
                 return ExpenseType.HOUSEHOLD
 
@@ -175,78 +159,116 @@ class TransactionClassifier:
         return ExpenseType.INDIVIDUAL
 
     def classify_transaction(
-        self, description: str, amount: Decimal, is_shared_account: bool = False
-    ) -> Tuple[str, str]:
+        self,
+        description: str,
+        amount: Decimal,
+        is_shared_account: bool = False,
+        date: Optional[str] = None
+    ) -> str:
         """
-        Classify both category and type
+        Classify transaction type (HOUSEHOLD or INDIVIDUAL)
 
         Priority order:
-        1. Learned rules (from user corrections) - highest priority
-        2. Keyword patterns - fallback
+        1. One-time transaction mappings (highest priority) - exact match only
+        2. Learned rules (from user corrections) - fuzzy match
+        3. Keyword patterns - fallback
 
         Args:
             description: Transaction description
             amount: Transaction amount
             is_shared_account: True if from shared account
+            date: Transaction date (YYYY-MM-DD format) for one-time mappings
 
         Returns:
-            Tuple of (category_string, type_string)
+            Type string (HOUSEHOLD or INDIVIDUAL)
         """
-        # Try learned classifier first (priority)
+        # 1. Check one-time mappings first (highest priority)
+        if date and self.one_time_mappings:
+            txn_key = self._get_transaction_key(date, description, amount)
+            if txn_key in self.one_time_mappings:
+                return self.one_time_mappings[txn_key]
+
+        # 2. Try learned classifier (second priority)
         if self.learned_classifier:
             learned_result = self.learned_classifier.classify(description)
             if learned_result:
                 return learned_result
 
-        # Fall back to keyword-based classification
-        category = self.classify_category(description)
+        # 3. Fall back to keyword-based classification
         expense_type = self.classify_type(description, amount, is_shared_account)
+        return expense_type.name
 
-        return category, expense_type.name
-
-    def get_classification_confidence(self, description: str, category: str) -> float:
+    def add_one_time_mapping(
+        self,
+        date: str,
+        description: str,
+        amount: Decimal,
+        expense_type: str
+    ) -> None:
         """
-        Get confidence score for classification
+        Add a one-time transaction mapping for a specific transaction.
+
+        This mapping will only apply to this exact transaction (date + description + amount).
 
         Args:
+            date: Transaction date (YYYY-MM-DD format)
             description: Transaction description
-            category: Classified category string
+            amount: Transaction amount
+            expense_type: Type to assign (HOUSEHOLD or INDIVIDUAL)
+        """
+        txn_key = self._get_transaction_key(date, description, amount)
+        self.one_time_mappings[txn_key] = expense_type
+        self._save_one_time_mappings()
+
+    def remove_one_time_mapping(
+        self, date: str, description: str, amount: Decimal
+    ) -> bool:
+        """
+        Remove a one-time transaction mapping.
+
+        Args:
+            date: Transaction date (YYYY-MM-DD format)
+            description: Transaction description
+            amount: Transaction amount
 
         Returns:
-            Confidence score (0.0 to 1.0)
+            True if mapping was removed, False if it didn't exist
         """
-        if category == "OTHER":
-            return 0.3  # Low confidence for default category
+        txn_key = self._get_transaction_key(date, description, amount)
+        if txn_key in self.one_time_mappings:
+            del self.one_time_mappings[txn_key]
+            self._save_one_time_mappings()
+            return True
+        return False
 
-        # Check how many patterns matched
-        patterns = self.category_patterns.get(category, [])
-        matches = sum(
-            1 for pattern in patterns if re.search(pattern, description, re.IGNORECASE)
-        )
+    def get_one_time_mapping(
+        self, date: str, description: str, amount: Decimal
+    ) -> Optional[str]:
+        """
+        Get the one-time mapping for a specific transaction.
 
-        if matches > 0:
-            # More matches = higher confidence
-            return min(0.7 + (matches * 0.15), 1.0)
+        Args:
+            date: Transaction date (YYYY-MM-DD format)
+            description: Transaction description
+            amount: Transaction amount
 
-        return 0.5  # Medium confidence
+        Returns:
+            Expense type (HOUSEHOLD or INDIVIDUAL) if mapping exists, None otherwise
+        """
+        txn_key = self._get_transaction_key(date, description, amount)
+        return self.one_time_mappings.get(txn_key)
 
-    def add_custom_rule(
-        self, pattern: str, category: str, expense_type: Optional[ExpenseType] = None
+    def add_custom_pattern(
+        self, pattern: str, expense_type: ExpenseType
     ):
         """
-        Add a custom classification rule
+        Add a custom classification pattern
 
         Args:
             pattern: Regex pattern to match
-            category: Category string to assign
-            expense_type: Optional type to assign (SHARED/INDIVIDUAL)
+            expense_type: Type to assign (HOUSEHOLD/INDIVIDUAL)
         """
-        if category not in self.category_patterns:
-            self.category_patterns[category] = []
-
-        self.category_patterns[category].append(pattern)
-
-        if expense_type == ExpenseType.SHARED:
-            self.shared_patterns.append(pattern)
+        if expense_type == ExpenseType.HOUSEHOLD:
+            self.household_patterns.append(pattern)
         elif expense_type == ExpenseType.INDIVIDUAL:
             self.individual_patterns.append(pattern)

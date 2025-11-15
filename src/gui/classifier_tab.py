@@ -20,51 +20,6 @@ from src.config_manager import ConfigManager
 from src.models import ExpenseType, DEFAULT_EXPENSE_CATEGORIES
 
 
-class CategoryPatternDialog(QDialog):
-    """Dialog for editing category patterns."""
-
-    def __init__(self, parent=None, category=None, patterns=None):
-        super().__init__(parent)
-        self.category = category
-        self.patterns = patterns or []
-        self.setWindowTitle(f"Edit Patterns - {category}")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(400)
-
-        self.init_ui()
-
-    def init_ui(self):
-        """Initialize the dialog UI."""
-        layout = QVBoxLayout(self)
-
-        # Info label
-        info = QLabel(
-            f"Regex patterns for category: {self.category}\n"
-            "Each pattern should be a valid regular expression."
-        )
-        info.setWordWrap(True)
-        layout.addWidget(info)
-
-        # Pattern list
-        self.pattern_list = QTextEdit()
-        self.pattern_list.setPlainText('\n'.join(self.patterns))
-        self.pattern_list.setPlaceholderText("Enter regex patterns, one per line...")
-        layout.addWidget(self.pattern_list)
-
-        # Buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def get_patterns(self):
-        """Get the edited patterns."""
-        text = self.pattern_list.toPlainText()
-        return [line.strip() for line in text.split('\n') if line.strip()]
-
-
 class TransactionClassifierTab(QWidget):
     """Tab for managing transaction classification settings."""
 
@@ -88,9 +43,9 @@ class TransactionClassifierTab(QWidget):
 
         # Add tabs
         self.tabs.addTab(self.create_settings_tab(), "Settings")
-        self.tabs.addTab(self.create_patterns_tab(), "Category Patterns")
-        self.tabs.addTab(self.create_type_patterns_tab(), "Type Patterns")
-        self.tabs.addTab(self.create_learned_rules_tab(), "Learned Rules")
+        self.tabs.addTab(self.create_type_patterns_tab(), "Type Patterns (Account-Specific)")
+        self.tabs.addTab(self.create_learned_rules_tab(), "Learned Rules (Account-Specific)")
+        self.tabs.addTab(self.create_one_time_mappings_tab(), "One-Time Mappings")
         self.tabs.addTab(self.create_test_tab(), "Test Classification")
 
     def create_settings_tab(self):
@@ -166,63 +121,39 @@ class TransactionClassifierTab(QWidget):
         layout.addStretch()
         return widget
 
-    def create_patterns_tab(self):
-        """Create the category patterns tab."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # Info label
-        info = QLabel(
-            "Category patterns define which transactions match which expense categories.\n"
-            "These are regex patterns matched against transaction descriptions."
-        )
-        info.setWordWrap(True)
-        layout.addWidget(info)
-
-        # Pattern table
-        self.category_patterns_table = QTableWidget()
-        self.category_patterns_table.setColumnCount(3)
-        self.category_patterns_table.setHorizontalHeaderLabels(["Category", "Pattern Count", "Actions"])
-        self.category_patterns_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.category_patterns_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.category_patterns_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        layout.addWidget(self.category_patterns_table)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.load_category_patterns)
-        button_layout.addWidget(refresh_btn)
-
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        return widget
-
     def create_type_patterns_tab(self):
-        """Create the type patterns tab (shared vs individual)."""
+        """Create the type patterns tab (account-specific)."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
         # Info label
         info = QLabel(
             "Type patterns determine whether a transaction is HOUSEHOLD (shared) or INDIVIDUAL (personal).\n"
-            "These patterns are applied when the classifier needs to determine the expense type."
+            "Patterns are account-specific - each account can have its own classification rules.\n"
+            "Select an account below to view and edit its patterns."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        # Shared patterns
-        shared_group = QGroupBox("Household/Shared Patterns")
-        shared_layout = QVBoxLayout()
+        # Account selection
+        account_layout = QHBoxLayout()
+        account_layout.addWidget(QLabel("Account:"))
+        self.type_patterns_account_combo = QComboBox()
+        self.type_patterns_account_combo.currentIndexChanged.connect(self.on_type_patterns_account_changed)
+        account_layout.addWidget(self.type_patterns_account_combo)
+        account_layout.addStretch()
+        layout.addLayout(account_layout)
 
-        self.shared_patterns_text = QTextEdit()
-        self.shared_patterns_text.setPlaceholderText("Enter regex patterns for household expenses, one per line...")
-        shared_layout.addWidget(self.shared_patterns_text)
+        # Household patterns
+        household_group = QGroupBox("Household/Shared Patterns")
+        household_layout = QVBoxLayout()
 
-        shared_group.setLayout(shared_layout)
-        layout.addWidget(shared_group)
+        self.household_patterns_text = QTextEdit()
+        self.household_patterns_text.setPlaceholderText("Enter regex patterns for household expenses, one per line...")
+        household_layout.addWidget(self.household_patterns_text)
+
+        household_group.setLayout(household_layout)
+        layout.addWidget(household_group)
 
         # Individual patterns
         individual_group = QGroupBox("Individual/Personal Patterns")
@@ -238,12 +169,8 @@ class TransactionClassifierTab(QWidget):
         # Buttons
         button_layout = QHBoxLayout()
 
-        load_btn = QPushButton("Load Current Patterns")
-        load_btn.clicked.connect(self.load_type_patterns)
-        button_layout.addWidget(load_btn)
-
-        save_btn = QPushButton("Save Patterns")
-        save_btn.clicked.connect(self.save_type_patterns)
+        save_btn = QPushButton("Save Patterns to Config")
+        save_btn.clicked.connect(self.save_type_patterns_to_config)
         button_layout.addWidget(save_btn)
 
         button_layout.addStretch()
@@ -268,13 +195,6 @@ class TransactionClassifierTab(QWidget):
 
         stats_group.setLayout(stats_layout)
         layout.addWidget(stats_group)
-
-        # Category distribution
-        self.category_stats_text = QTextEdit()
-        self.category_stats_text.setReadOnly(True)
-        self.category_stats_text.setMaximumHeight(150)
-        layout.addWidget(QLabel("Category Distribution:"))
-        layout.addWidget(self.category_stats_text)
 
         # Type distribution
         self.type_stats_text = QTextEdit()
@@ -330,6 +250,53 @@ class TransactionClassifierTab(QWidget):
         layout.addStretch()
         return widget
 
+    def create_one_time_mappings_tab(self):
+        """Create the one-time mappings tab."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Info label
+        info = QLabel(
+            "One-time mappings allow you to specify the classification for a specific transaction.\n"
+            "These mappings have the highest priority and only apply to exact matches (date + description + amount).\n"
+            "Use these for transactions that should be classified differently from similar transactions."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Account selection
+        account_layout = QHBoxLayout()
+        account_layout.addWidget(QLabel("Account:"))
+        self.one_time_account_combo = QComboBox()
+        self.one_time_account_combo.currentIndexChanged.connect(self.on_one_time_account_changed)
+        account_layout.addWidget(self.one_time_account_combo)
+        account_layout.addStretch()
+        layout.addLayout(account_layout)
+
+        # Mappings table
+        self.one_time_mappings_table = QTableWidget()
+        self.one_time_mappings_table.setColumnCount(5)
+        self.one_time_mappings_table.setHorizontalHeaderLabels(["Date", "Description", "Amount", "Type", "Actions"])
+        self.one_time_mappings_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        layout.addWidget(self.one_time_mappings_table)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.load_one_time_mappings)
+        button_layout.addWidget(refresh_btn)
+
+        add_btn = QPushButton("Add Mapping...")
+        add_btn.clicked.connect(self.add_one_time_mapping_dialog)
+        button_layout.addWidget(add_btn)
+
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        layout.addStretch()
+        return widget
+
     def create_test_tab(self):
         """Create the test classification tab."""
         widget = QWidget()
@@ -366,12 +333,8 @@ class TransactionClassifierTab(QWidget):
         results_group = QGroupBox("Classification Results")
         results_layout = QFormLayout()
 
-        self.result_category_label = QLabel("-")
-        self.result_category_label.setStyleSheet("font-weight: bold;")
-        results_layout.addRow("Category:", self.result_category_label)
-
         self.result_type_label = QLabel("-")
-        self.result_type_label.setStyleSheet("font-weight: bold;")
+        self.result_type_label.setStyleSheet("font-weight: bold; font-size: 14pt;")
         results_layout.addRow("Type:", self.result_type_label)
 
         self.result_source_label = QLabel("-")
@@ -401,6 +364,9 @@ class TransactionClassifierTab(QWidget):
             # Set default rules path
             rules_path = self.config.working_dir / "learned_classification_rules.json"
             self.rules_path_edit.setText(str(rules_path))
+
+            # Populate account combos
+            self.populate_account_combos()
 
             # Initialize classifier
             self.reload_classifier()
@@ -435,9 +401,10 @@ class TransactionClassifierTab(QWidget):
                 )
 
             # Refresh displays
-            self.load_category_patterns()
+            self.populate_account_combos()
             self.load_type_patterns()
             self.refresh_learned_stats()
+            self.load_one_time_mappings()
 
             QMessageBox.information(
                 self,
@@ -452,97 +419,168 @@ class TransactionClassifierTab(QWidget):
                 f"Failed to reload classifier: {e}"
             )
 
-    def load_category_patterns(self):
-        """Load category patterns into the table."""
-        if not self.classifier:
+    def populate_account_combos(self):
+        """Populate account combo boxes with accounts from config."""
+        if not self.config:
             return
 
-        self.category_patterns_table.setRowCount(0)
+        # Clear combos
+        self.type_patterns_account_combo.clear()
+        self.one_time_account_combo.clear()
 
-        for category, patterns in sorted(self.classifier.category_patterns.items()):
-            row = self.category_patterns_table.rowCount()
-            self.category_patterns_table.insertRow(row)
+        # Add user accounts
+        for user in self.config.users:
+            for account in user.accounts:
+                account_id = f"{user.id}_{account.name}"
+                display_name = f"{user.name} - {account.name}"
+                self.type_patterns_account_combo.addItem(display_name, account_id)
+                self.one_time_account_combo.addItem(display_name, account_id)
 
-            # Category name
-            category_item = QTableWidgetItem(category)
-            self.category_patterns_table.setItem(row, 0, category_item)
+        # Add shared accounts
+        for account in self.config.shared_accounts:
+            account_id = f"shared_{account.name}"
+            display_name = f"Shared - {account.name}"
+            self.type_patterns_account_combo.addItem(display_name, account_id)
+            self.one_time_account_combo.addItem(display_name, account_id)
 
-            # Pattern count
-            count_item = QTableWidgetItem(str(len(patterns)))
-            self.category_patterns_table.setItem(row, 1, count_item)
+    def on_type_patterns_account_changed(self):
+        """Handle account selection change in type patterns tab."""
+        self.load_type_patterns()
 
-            # Edit button
-            edit_btn = QPushButton("Edit Patterns")
-            edit_btn.clicked.connect(
-                lambda checked, c=category, p=patterns: self.edit_category_patterns(c, p)
-            )
-            self.category_patterns_table.setCellWidget(row, 2, edit_btn)
-
-    def edit_category_patterns(self, category, patterns):
-        """Open dialog to edit category patterns."""
-        dialog = CategoryPatternDialog(self, category, patterns)
-        if dialog.exec_() == QDialog.Accepted:
-            new_patterns = dialog.get_patterns()
-            if self.classifier:
-                self.classifier.category_patterns[category] = new_patterns
-                self.load_category_patterns()
-                QMessageBox.information(
-                    self,
-                    "Patterns Updated",
-                    f"Updated patterns for category: {category}\n"
-                    f"New pattern count: {len(new_patterns)}"
-                )
+    def on_one_time_account_changed(self):
+        """Handle account selection change in one-time mappings tab."""
+        self.load_one_time_mappings()
 
     def load_type_patterns(self):
-        """Load type patterns into text areas."""
-        if not self.classifier:
+        """Load type patterns for the selected account from config."""
+        if not self.config:
             return
 
-        # Load shared patterns
-        self.shared_patterns_text.setPlainText(
-            '\n'.join(self.classifier.shared_patterns)
-        )
+        account_id = self.type_patterns_account_combo.currentData()
+        if not account_id:
+            self.household_patterns_text.clear()
+            self.individual_patterns_text.clear()
+            return
 
-        # Load individual patterns
+        # Find the account in config
+        account_config = self._get_account_config(account_id)
+        if not account_config:
+            self.household_patterns_text.clear()
+            self.individual_patterns_text.clear()
+            return
+
+        # Load patterns
+        self.household_patterns_text.setPlainText(
+            '\n'.join(account_config.household_patterns or [])
+        )
         self.individual_patterns_text.setPlainText(
-            '\n'.join(self.classifier.individual_patterns)
+            '\n'.join(account_config.individual_patterns or [])
         )
 
-    def save_type_patterns(self):
-        """Save type patterns from text areas."""
-        if not self.classifier:
+    def _get_account_config(self, account_id: str):
+        """Get account config by ID."""
+        if not self.config:
+            return None
+
+        # Check shared accounts
+        if account_id.startswith("shared_"):
+            account_name = account_id.replace("shared_", "")
+            for account in self.config.shared_accounts:
+                if account.name == account_name:
+                    return account
+        else:
+            # User account
+            parts = account_id.split("_", 1)
+            if len(parts) == 2:
+                user_id, account_name = parts
+                for user in self.config.users:
+                    if user.id == user_id:
+                        for account in user.accounts:
+                            if account.name == account_name:
+                                return account
+        return None
+
+    def save_type_patterns_to_config(self):
+        """Save type patterns to config file."""
+        account_id = self.type_patterns_account_combo.currentData()
+        if not account_id:
             QMessageBox.warning(
                 self,
-                "No Classifier",
-                "Please reload the classifier first."
+                "No Account Selected",
+                "Please select an account first."
             )
             return
 
         # Get patterns from text areas
-        shared_text = self.shared_patterns_text.toPlainText()
-        shared_patterns = [line.strip() for line in shared_text.split('\n') if line.strip()]
+        household_text = self.household_patterns_text.toPlainText()
+        household_patterns = [line.strip() for line in household_text.split('\n') if line.strip()]
 
         individual_text = self.individual_patterns_text.toPlainText()
         individual_patterns = [line.strip() for line in individual_text.split('\n') if line.strip()]
 
-        # Update classifier
-        self.classifier.shared_patterns = shared_patterns
-        self.classifier.individual_patterns = individual_patterns
+        try:
+            # Load current config
+            with open("config.json", "r", encoding="utf-8") as f:
+                config_data = json.load(f)
 
-        QMessageBox.information(
-            self,
-            "Patterns Saved",
-            f"Type patterns updated:\n"
-            f"Shared patterns: {len(shared_patterns)}\n"
-            f"Individual patterns: {len(individual_patterns)}"
-        )
+            # Update the account's patterns
+            updated = False
+            if account_id.startswith("shared_"):
+                account_name = account_id.replace("shared_", "")
+                for account in config_data.get("shared_accounts", []):
+                    if account["name"] == account_name:
+                        account["household_patterns"] = household_patterns
+                        account["individual_patterns"] = individual_patterns
+                        updated = True
+                        break
+            else:
+                parts = account_id.split("_", 1)
+                if len(parts) == 2:
+                    user_id, account_name = parts
+                    for user in config_data.get("users", []):
+                        if user.get("id") == user_id:
+                            for account in user.get("accounts", []):
+                                if account["name"] == account_name:
+                                    account["household_patterns"] = household_patterns
+                                    account["individual_patterns"] = individual_patterns
+                                    updated = True
+                                    break
+
+            if not updated:
+                QMessageBox.warning(
+                    self,
+                    "Account Not Found",
+                    f"Could not find account '{account_id}' in config."
+                )
+                return
+
+            # Save config
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=2)
+
+            # Reload config
+            self.config = ConfigManager.load()
+
+            QMessageBox.information(
+                self,
+                "Patterns Saved",
+                f"Type patterns saved to config:\n"
+                f"Household patterns: {len(household_patterns)}\n"
+                f"Individual patterns: {len(individual_patterns)}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save patterns: {e}"
+            )
 
     def refresh_learned_stats(self):
         """Refresh learned rules statistics."""
         if not self.learned_classifier:
             self.total_rules_label.setText("0")
             self.rules_file_label.setText("-")
-            self.category_stats_text.clear()
             self.type_stats_text.clear()
             return
 
@@ -552,15 +590,6 @@ class TransactionClassifierTab(QWidget):
         # Update labels
         self.total_rules_label.setText(str(stats['total_rules']))
         self.rules_file_label.setText(str(self.learned_classifier.rules_path))
-
-        # Category distribution
-        if stats['categories']:
-            cat_text = []
-            for category, count in sorted(stats['categories'].items(), key=lambda x: x[1], reverse=True):
-                cat_text.append(f"{category}: {count}")
-            self.category_stats_text.setPlainText('\n'.join(cat_text))
-        else:
-            self.category_stats_text.setPlainText("No rules learned yet")
 
         # Type distribution
         if stats['types']:
@@ -729,6 +758,210 @@ class TransactionClassifierTab(QWidget):
                     f"Failed to apply rules: {e}"
                 )
 
+    def load_one_time_mappings(self):
+        """Load one-time mappings for the selected account."""
+        self.one_time_mappings_table.setRowCount(0)
+
+        account_id = self.one_time_account_combo.currentData()
+        if not account_id:
+            return
+
+        # Load mappings from file
+        mappings_path = Path(self.config.working_dir) / "one_time_transaction_mappings.json"
+        if not mappings_path.exists():
+            return
+
+        try:
+            with open(mappings_path, 'r', encoding='utf-8') as f:
+                all_mappings = json.load(f)
+
+            account_mappings = all_mappings.get(account_id, {})
+
+            for txn_key, exp_type in account_mappings.items():
+                # Parse the key (date|description|amount)
+                parts = txn_key.split('|', 2)
+                if len(parts) != 3:
+                    continue
+
+                date, description, amount = parts
+
+                row = self.one_time_mappings_table.rowCount()
+                self.one_time_mappings_table.insertRow(row)
+
+                # Date
+                self.one_time_mappings_table.setItem(row, 0, QTableWidgetItem(date))
+                # Description
+                self.one_time_mappings_table.setItem(row, 1, QTableWidgetItem(description))
+                # Amount
+                self.one_time_mappings_table.setItem(row, 2, QTableWidgetItem(amount))
+                # Type
+                self.one_time_mappings_table.setItem(row, 3, QTableWidgetItem(exp_type))
+
+                # Delete button
+                delete_btn = QPushButton("Delete")
+                delete_btn.clicked.connect(
+                    lambda checked, d=date, desc=description, a=amount: self.delete_one_time_mapping(d, desc, a)
+                )
+                self.one_time_mappings_table.setCellWidget(row, 4, delete_btn)
+
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Load Error",
+                f"Failed to load one-time mappings: {e}"
+            )
+
+    def add_one_time_mapping_dialog(self):
+        """Show dialog to add a new one-time mapping."""
+        account_id = self.one_time_account_combo.currentData()
+        if not account_id:
+            QMessageBox.warning(
+                self,
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add One-Time Mapping")
+        layout = QFormLayout(dialog)
+
+        # Input fields
+        date_edit = QLineEdit()
+        date_edit.setPlaceholderText("YYYY-MM-DD")
+        layout.addRow("Date:", date_edit)
+
+        description_edit = QLineEdit()
+        description_edit.setPlaceholderText("Transaction description")
+        layout.addRow("Description:", description_edit)
+
+        amount_edit = QLineEdit()
+        amount_edit.setPlaceholderText("123.45")
+        layout.addRow("Amount:", amount_edit)
+
+        type_combo = QComboBox()
+        type_combo.addItem("HOUSEHOLD", "HOUSEHOLD")
+        type_combo.addItem("INDIVIDUAL", "INDIVIDUAL")
+        layout.addRow("Type:", type_combo)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addRow(button_box)
+
+        if dialog.exec_() == QDialog.Accepted:
+            # Add the mapping
+            date = date_edit.text().strip()
+            description = description_edit.text().strip()
+            amount = amount_edit.text().strip()
+            exp_type = type_combo.currentData()
+
+            if not date or not description or not amount:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Input",
+                    "All fields are required."
+                )
+                return
+
+            try:
+                from decimal import Decimal
+                amount_decimal = Decimal(amount)
+
+                # Create transaction key
+                txn_key = f"{date}|{description.lower().strip()}|{amount_decimal}"
+
+                # Load mappings
+                mappings_path = Path(self.config.working_dir) / "one_time_transaction_mappings.json"
+                all_mappings = {}
+                if mappings_path.exists():
+                    with open(mappings_path, 'r', encoding='utf-8') as f:
+                        all_mappings = json.load(f)
+
+                # Update
+                if account_id not in all_mappings:
+                    all_mappings[account_id] = {}
+                all_mappings[account_id][txn_key] = exp_type
+
+                # Save
+                mappings_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(mappings_path, 'w', encoding='utf-8') as f:
+                    json.dump(all_mappings, indent=2, fp=f)
+
+                # Refresh
+                self.load_one_time_mappings()
+
+                QMessageBox.information(
+                    self,
+                    "Mapping Added",
+                    f"One-time mapping added successfully."
+                )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Add Error",
+                    f"Failed to add mapping: {e}"
+                )
+
+    def delete_one_time_mapping(self, date: str, description: str, amount: str):
+        """Delete a one-time mapping."""
+        account_id = self.one_time_account_combo.currentData()
+        if not account_id:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Mapping",
+            f"Are you sure you want to delete this mapping?\n\n"
+            f"Date: {date}\n"
+            f"Description: {description}\n"
+            f"Amount: {amount}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                from decimal import Decimal
+                amount_decimal = Decimal(amount)
+                txn_key = f"{date}|{description.lower().strip()}|{amount_decimal}"
+
+                # Load mappings
+                mappings_path = Path(self.config.working_dir) / "one_time_transaction_mappings.json"
+                if not mappings_path.exists():
+                    return
+
+                with open(mappings_path, 'r', encoding='utf-8') as f:
+                    all_mappings = json.load(f)
+
+                # Delete
+                if account_id in all_mappings and txn_key in all_mappings[account_id]:
+                    del all_mappings[account_id][txn_key]
+
+                    # Save
+                    with open(mappings_path, 'w', encoding='utf-8') as f:
+                        json.dump(all_mappings, indent=2, fp=f)
+
+                    # Refresh
+                    self.load_one_time_mappings()
+
+                    QMessageBox.information(
+                        self,
+                        "Mapping Deleted",
+                        "One-time mapping deleted successfully."
+                    )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Delete Error",
+                    f"Failed to delete mapping: {e}"
+                )
+
     def test_classification(self):
         """Test classification on the input description."""
         if not self.classifier:
@@ -753,25 +986,28 @@ class TransactionClassifierTab(QWidget):
         try:
             from decimal import Decimal
 
-            # Classify
-            category, exp_type = self.classifier.classify_transaction(
+            # Classify (returns only type now, no category)
+            exp_type = self.classifier.classify_transaction(
                 description,
                 Decimal("0"),  # Amount doesn't affect most classifications
                 is_shared
             )
 
-            # Get confidence
-            confidence = self.classifier.get_classification_confidence(description, category)
-
             # Determine source
             source = "Keyword patterns"
+            confidence = 0.7
+
+            # Check one-time mappings
+            # (We'd need date for this, so skip for test)
+
+            # Check learned rules
             if self.classifier.learned_classifier:
                 learned_result = self.classifier.learned_classifier.classify(description)
                 if learned_result:
                     source = "Learned rules (from user corrections)"
+                    confidence = 0.95
 
             # Update results
-            self.result_category_label.setText(category)
             self.result_type_label.setText(exp_type)
             self.result_source_label.setText(source)
             self.result_confidence_label.setText(f"{confidence:.0%}")
