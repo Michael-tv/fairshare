@@ -454,8 +454,13 @@ class StatementProcessor:
                 return False, "No transactions found in statement"
 
             # Update record with statement info
-            record.statement_period_start = summary.statement_date.isoformat()
-            record.statement_period_end = summary.statement_date.isoformat()
+            # Calculate period start and end from transaction dates
+            transaction_dates = [t.date for t in transactions]
+            period_start = min(transaction_dates)
+            period_end = max(transaction_dates)
+
+            record.statement_period_start = period_start.isoformat()
+            record.statement_period_end = period_end.isoformat()
             record.transaction_count = len(transactions)
 
             # Calculate totals
