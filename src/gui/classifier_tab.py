@@ -46,6 +46,7 @@ class TransactionClassifierTab(QWidget):
         self.tabs.addTab(self.create_type_patterns_tab(), "Type Patterns (Account-Specific)")
         self.tabs.addTab(self.create_learned_rules_tab(), "Learned Rules (Account-Specific)")
         self.tabs.addTab(self.create_one_time_mappings_tab(), "One-Time Mappings")
+        self.tabs.addTab(self.create_split_mappings_tab(), "Split Mappings")
         self.tabs.addTab(self.create_test_tab(), "Test Classification")
 
     def create_settings_tab(self):
@@ -297,6 +298,54 @@ class TransactionClassifierTab(QWidget):
         layout.addStretch()
         return widget
 
+    def create_split_mappings_tab(self):
+        """Create the split mappings tab."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Info label
+        info = QLabel(
+            "Split mappings allow you to split a single transaction into multiple parts.\n"
+            "Example: A R350 grocery store transaction split as R280 HOUSEHOLD + R70 INDIVIDUAL.\n"
+            "These mappings have the highest priority and only apply to exact matches (date + description + amount)."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Account selection
+        account_layout = QHBoxLayout()
+        account_layout.addWidget(QLabel("Account:"))
+        self.split_account_combo = QComboBox()
+        self.split_account_combo.currentIndexChanged.connect(self.on_split_account_changed)
+        account_layout.addWidget(self.split_account_combo)
+        account_layout.addStretch()
+        layout.addLayout(account_layout)
+
+        # Mappings table
+        self.split_mappings_table = QTableWidget()
+        self.split_mappings_table.setColumnCount(5)
+        self.split_mappings_table.setHorizontalHeaderLabels(["Date", "Description", "Total Amount", "Split Details", "Actions"])
+        self.split_mappings_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.split_mappings_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        layout.addWidget(self.split_mappings_table)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.load_split_mappings)
+        button_layout.addWidget(refresh_btn)
+
+        add_btn = QPushButton("Add Split Mapping...")
+        add_btn.clicked.connect(self.add_split_mapping_dialog)
+        button_layout.addWidget(add_btn)
+
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        layout.addStretch()
+        return widget
+
     def create_test_tab(self):
         """Create the test classification tab."""
         widget = QWidget()
@@ -405,6 +454,7 @@ class TransactionClassifierTab(QWidget):
             self.load_type_patterns()
             self.refresh_learned_stats()
             self.load_one_time_mappings()
+            self.load_split_mappings()
 
             QMessageBox.information(
                 self,
@@ -427,6 +477,7 @@ class TransactionClassifierTab(QWidget):
         # Clear combos
         self.type_patterns_account_combo.clear()
         self.one_time_account_combo.clear()
+        self.split_account_combo.clear()
 
         # Add user accounts
         for user in self.config.users:
@@ -435,6 +486,7 @@ class TransactionClassifierTab(QWidget):
                 display_name = f"{user.name} - {account.name}"
                 self.type_patterns_account_combo.addItem(display_name, account_id)
                 self.one_time_account_combo.addItem(display_name, account_id)
+                self.split_account_combo.addItem(display_name, account_id)
 
         # Add shared accounts
         for account in self.config.shared_accounts:
@@ -442,6 +494,7 @@ class TransactionClassifierTab(QWidget):
             display_name = f"Shared - {account.name}"
             self.type_patterns_account_combo.addItem(display_name, account_id)
             self.one_time_account_combo.addItem(display_name, account_id)
+            self.split_account_combo.addItem(display_name, account_id)
 
     def on_type_patterns_account_changed(self):
         """Handle account selection change in type patterns tab."""
@@ -450,6 +503,10 @@ class TransactionClassifierTab(QWidget):
     def on_one_time_account_changed(self):
         """Handle account selection change in one-time mappings tab."""
         self.load_one_time_mappings()
+
+    def on_split_account_changed(self):
+        """Handle account selection change in split mappings tab."""
+        self.load_split_mappings()
 
     def load_type_patterns(self):
         """Load type patterns for the selected account from config."""
@@ -960,6 +1017,334 @@ class TransactionClassifierTab(QWidget):
                     self,
                     "Delete Error",
                     f"Failed to delete mapping: {e}"
+                )
+
+    def load_split_mappings(self):
+        """Load split mappings for the selected account."""
+        self.split_mappings_table.setRowCount(0)
+
+        account_id = self.split_account_combo.currentData()
+        if not account_id:
+            return
+
+        # Load mappings from file
+        mappings_path = Path(self.config.working_dir) / "split_transaction_mappings.json"
+        if not mappings_path.exists():
+            return
+
+        try:
+            import json
+            with open(mappings_path, 'r', encoding='utf-8') as f:
+                all_mappings = json.load(f)
+
+            account_mappings = all_mappings.get(account_id, {})
+
+            for txn_key, split_parts in account_mappings.items():
+                # Parse the key (date|description|amount)
+                parts = txn_key.split('|', 2)
+                if len(parts) != 3:
+                    continue
+
+                date, description, amount = parts
+
+                # Format split details
+                split_details = []
+                for part in split_parts:
+                    split_details.append(f"{part['type']}: R{part['amount']}" +
+                                       (f" ({part['note']})" if part.get('note') else ""))
+                split_text = "\n".join(split_details)
+
+                row = self.split_mappings_table.rowCount()
+                self.split_mappings_table.insertRow(row)
+
+                # Date
+                self.split_mappings_table.setItem(row, 0, QTableWidgetItem(date))
+                # Description
+                self.split_mappings_table.setItem(row, 1, QTableWidgetItem(description))
+                # Total Amount
+                self.split_mappings_table.setItem(row, 2, QTableWidgetItem(f"R{amount}"))
+                # Split Details
+                self.split_mappings_table.setItem(row, 3, QTableWidgetItem(split_text))
+
+                # Delete button
+                delete_btn = QPushButton("Delete")
+                delete_btn.clicked.connect(
+                    lambda checked, d=date, desc=description, a=amount: self.delete_split_mapping(d, desc, a)
+                )
+                self.split_mappings_table.setCellWidget(row, 4, delete_btn)
+
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Load Error",
+                f"Failed to load split mappings: {e}"
+            )
+
+    def add_split_mapping_dialog(self):
+        """Show dialog to add a new split mapping."""
+        account_id = self.split_account_combo.currentData()
+        if not account_id:
+            QMessageBox.warning(
+                self,
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        # Create dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Split Mapping")
+        dialog.setMinimumWidth(600)
+        layout = QVBoxLayout(dialog)
+
+        # Transaction details
+        trans_group = QGroupBox("Transaction Details")
+        trans_layout = QFormLayout()
+
+        date_edit = QLineEdit()
+        date_edit.setPlaceholderText("YYYY-MM-DD")
+        trans_layout.addRow("Date:", date_edit)
+
+        description_edit = QLineEdit()
+        description_edit.setPlaceholderText("Transaction description")
+        trans_layout.addRow("Description:", description_edit)
+
+        amount_edit = QLineEdit()
+        amount_edit.setPlaceholderText("350.00")
+        trans_layout.addRow("Total Amount:", amount_edit)
+
+        trans_group.setLayout(trans_layout)
+        layout.addWidget(trans_group)
+
+        # Split parts
+        split_group = QGroupBox("Split Parts (must sum to total amount)")
+        split_layout = QVBoxLayout()
+
+        # Create a container for split part widgets
+        split_parts_container = QWidget()
+        split_parts_layout = QVBoxLayout(split_parts_container)
+        split_parts = []  # List to store split part widgets
+
+        def add_split_part():
+            """Add a new split part row."""
+            part_widget = QWidget()
+            part_layout = QHBoxLayout(part_widget)
+
+            type_combo = QComboBox()
+            type_combo.addItem("HOUSEHOLD", "HOUSEHOLD")
+            type_combo.addItem("INDIVIDUAL", "INDIVIDUAL")
+            part_layout.addWidget(QLabel("Type:"))
+            part_layout.addWidget(type_combo)
+
+            part_layout.addWidget(QLabel("Amount:"))
+            amount_input = QLineEdit()
+            amount_input.setPlaceholderText("0.00")
+            amount_input.setMaximumWidth(100)
+            part_layout.addWidget(amount_input)
+
+            part_layout.addWidget(QLabel("Note:"))
+            note_input = QLineEdit()
+            note_input.setPlaceholderText("Optional note")
+            part_layout.addWidget(note_input)
+
+            remove_btn = QPushButton("Remove")
+            remove_btn.clicked.connect(lambda: remove_split_part(part_widget))
+            part_layout.addWidget(remove_btn)
+
+            split_parts_layout.addWidget(part_widget)
+            split_parts.append({
+                'widget': part_widget,
+                'type_combo': type_combo,
+                'amount': amount_input,
+                'note': note_input
+            })
+
+        def remove_split_part(widget):
+            """Remove a split part row."""
+            for i, part in enumerate(split_parts):
+                if part['widget'] == widget:
+                    split_parts_layout.removeWidget(widget)
+                    widget.deleteLater()
+                    split_parts.pop(i)
+                    break
+
+        # Add initial split parts
+        add_split_part()
+        add_split_part()
+
+        split_layout.addWidget(split_parts_container)
+
+        add_part_btn = QPushButton("Add Another Part")
+        add_part_btn.clicked.connect(add_split_part)
+        split_layout.addWidget(add_part_btn)
+
+        split_group.setLayout(split_layout)
+        layout.addWidget(split_group)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec_() == QDialog.Accepted:
+            # Validate and save the mapping
+            date = date_edit.text().strip()
+            description = description_edit.text().strip()
+            total_amount_str = amount_edit.text().strip()
+
+            if not date or not description or not total_amount_str:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Input",
+                    "Date, description, and total amount are required."
+                )
+                return
+
+            try:
+                from decimal import Decimal
+                from src.transaction_classifier import SplitPart
+
+                total_amount = Decimal(total_amount_str)
+
+                # Build split parts
+                split_parts_data = []
+                for part in split_parts:
+                    amount_str = part['amount'].text().strip()
+                    if not amount_str:
+                        continue
+
+                    split_parts_data.append(SplitPart(
+                        expense_type=part['type_combo'].currentData(),
+                        amount=Decimal(amount_str),
+                        note=part['note'].text().strip()
+                    ))
+
+                if len(split_parts_data) < 2:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Split",
+                        "At least 2 split parts are required."
+                    )
+                    return
+
+                # Validate sum
+                parts_sum = sum(p.amount for p in split_parts_data)
+                if parts_sum != total_amount:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Split",
+                        f"Split parts sum (R{parts_sum}) does not match total amount (R{total_amount})."
+                    )
+                    return
+
+                # Save to JSON file
+                mappings_path = Path(self.config.working_dir) / "split_transaction_mappings.json"
+
+                # Load existing mappings
+                all_mappings = {}
+                if mappings_path.exists():
+                    import json
+                    with open(mappings_path, 'r', encoding='utf-8') as f:
+                        all_mappings = json.load(f)
+
+                # Create transaction key
+                txn_key = f"{date}|{description.lower().strip()}|{total_amount}"
+
+                # Update
+                if account_id not in all_mappings:
+                    all_mappings[account_id] = {}
+                all_mappings[account_id][txn_key] = [part.to_dict() for part in split_parts_data]
+
+                # Save
+                mappings_path.parent.mkdir(parents=True, exist_ok=True)
+                import json
+                with open(mappings_path, 'w', encoding='utf-8') as f:
+                    json.dump(all_mappings, indent=2, fp=f)
+
+                # Refresh
+                self.load_split_mappings()
+
+                QMessageBox.information(
+                    self,
+                    "Mapping Added",
+                    f"Split mapping added successfully:\n"
+                    f"Transaction: R{total_amount}\n"
+                    f"Parts: {len(split_parts_data)}"
+                )
+
+            except ValueError as e:
+                QMessageBox.critical(
+                    self,
+                    "Invalid Input",
+                    f"Invalid amount value: {e}"
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Add Error",
+                    f"Failed to add split mapping: {e}"
+                )
+
+    def delete_split_mapping(self, date: str, description: str, amount: str):
+        """Delete a split mapping."""
+        account_id = self.split_account_combo.currentData()
+        if not account_id:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Split Mapping",
+            f"Are you sure you want to delete this split mapping?\n\n"
+            f"Date: {date}\n"
+            f"Description: {description}\n"
+            f"Amount: {amount}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                from decimal import Decimal
+                import json
+
+                # Remove 'R' prefix if present
+                amount_str = amount.replace('R', '').strip()
+                amount_decimal = Decimal(amount_str)
+                txn_key = f"{date}|{description.lower().strip()}|{amount_decimal}"
+
+                # Load mappings
+                mappings_path = Path(self.config.working_dir) / "split_transaction_mappings.json"
+                if not mappings_path.exists():
+                    return
+
+                with open(mappings_path, 'r', encoding='utf-8') as f:
+                    all_mappings = json.load(f)
+
+                # Delete
+                if account_id in all_mappings and txn_key in all_mappings[account_id]:
+                    del all_mappings[account_id][txn_key]
+
+                    # Save
+                    with open(mappings_path, 'w', encoding='utf-8') as f:
+                        json.dump(all_mappings, indent=2, fp=f)
+
+                    # Refresh
+                    self.load_split_mappings()
+
+                    QMessageBox.information(
+                        self,
+                        "Mapping Deleted",
+                        "Split mapping deleted successfully."
+                    )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Delete Error",
+                    f"Failed to delete split mapping: {e}"
                 )
 
     def test_classification(self):
