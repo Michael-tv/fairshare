@@ -23,7 +23,7 @@ import pandas as pd
 from src.bank_statement_parser import BankStatementParser, BankTransaction, BankStatementSummary
 from src.bank_template import TemplateRegistry
 from src.transaction_classifier import TransactionClassifier
-from src.config_manager import Config, UserConfig, AccountConfig, SharedAccountConfig
+from src.config_manager import Config, UserConfig, AccountConfig
 
 
 class ProcessingStatus(Enum):
