@@ -505,24 +505,32 @@ class StatementProcessor:
             df = pd.read_excel(raw_excel_path, sheet_name="Transactions")
 
             # Classify each transaction
-            categories = []
             types = []
             assigned_users = []
 
             user_names = self.config.get_user_names()
 
             for _, row in df.iterrows():
+                # Extract date and convert to string format
+                date_value = row['Date']
+                if isinstance(date_value, datetime):
+                    date_str = date_value.strftime('%Y-%m-%d')
+                elif hasattr(date_value, 'strftime'):  # pandas Timestamp
+                    date_str = date_value.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(date_value)
+
                 description = row['Description']
                 amount = Decimal(str(row['Amount']))
 
-                # Classify
-                category, exp_type = self.classifier.classify_transaction(
+                # Classify - returns type only (HOUSEHOLD, INDIVIDUAL, or SPLIT)
+                exp_type = self.classifier.classify_transaction(
                     description,
                     amount,
-                    is_shared_account=record.is_shared_account
+                    is_shared_account=record.is_shared_account,
+                    date=date_str
                 )
 
-                categories.append(category)
                 types.append(exp_type)
 
                 # Assign user (for personal expenses on shared accounts)
@@ -533,7 +541,6 @@ class StatementProcessor:
                     assigned_users.append("")
 
             # Add classification columns
-            df['Category'] = categories
             df['Type'] = types
             df['Assigned User'] = assigned_users
 

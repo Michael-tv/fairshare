@@ -54,6 +54,7 @@ class LearnedClassifier:
             account_id: Unique identifier for the account
             similarity_threshold: Minimum fuzzy match score (0-100) to consider a match
         """
+        self.rules_path = learned_rules_path
         self.account_id = account_id
         self.similarity_threshold = similarity_threshold
 

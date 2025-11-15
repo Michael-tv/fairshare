@@ -448,6 +448,7 @@ class TransactionClassifierTab(QWidget):
             if rules_path:
                 self.learned_classifier = LearnedClassifier(
                     rules_path,
+                    account_id="default",  # Placeholder for general management operations
                     similarity_threshold=similarity_threshold
                 )
 

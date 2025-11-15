@@ -39,7 +39,15 @@ class ProcessingThread(QThread):
         """Run the processing in background."""
         try:
             self.progress.emit("Processing statement...")
-            success, error = self.processor.process_full(self.statement_id, self.force)
+            result = self.processor.process_full(self.statement_id, self.force)
+
+            # Debug: Check what we got back
+            if not isinstance(result, tuple):
+                raise ValueError(f"process_full returned {type(result)} instead of tuple: {result}")
+            if len(result) != 2:
+                raise ValueError(f"process_full returned {len(result)} values instead of 2: {result}")
+
+            success, error = result
 
             if success:
                 self.finished.emit(True, "Statement processed successfully")
@@ -47,7 +55,9 @@ class ProcessingThread(QThread):
                 self.finished.emit(False, error or "Unknown error")
 
         except Exception as e:
-            self.finished.emit(False, str(e))
+            import traceback
+            full_error = f"{str(e)}\n\nStack trace:\n{traceback.format_exc()}"
+            self.finished.emit(False, full_error)
 
 
 class ScanThread(QThread):
@@ -187,7 +197,7 @@ class ProcessStatementsTab(QWidget):
         layout.addWidget(QLabel("From:"))
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
-        self.date_from.setDate(QDate.currentDate().addMonths(-3))
+        self.date_from.setDate(QDate.currentDate().addMonths(-12))
         self.date_from.dateChanged.connect(self.refresh_table)
         layout.addWidget(self.date_from)
 
@@ -612,14 +622,26 @@ class ProcessStatementsTab(QWidget):
         if not self.processor:
             return
 
-        self.status_label.setText("Parsing statement...")
-        success, error = self.processor.extract_only(statement_id, force=force)
+        try:
+            self.status_label.setText("Parsing statement...")
+            result = self.processor.extract_only(statement_id, force=force)
 
-        if success:
-            self.status_label.setText("Statement parsed successfully")
-        else:
-            self.status_label.setText(f"Error: {error}")
-            QMessageBox.warning(self, "Parse Error", error or "Unknown error")
+            # Validate return value
+            if not isinstance(result, tuple) or len(result) != 2:
+                raise ValueError(f"extract_only returned unexpected value: {result}")
+
+            success, error = result
+
+            if success:
+                self.status_label.setText("Statement parsed successfully")
+            else:
+                self.status_label.setText(f"Error: {error}")
+                QMessageBox.warning(self, "Parse Error", error or "Unknown error")
+        except Exception as e:
+            import traceback
+            error_msg = f"{str(e)}\n\nStack trace:\n{traceback.format_exc()}"
+            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Parse Error", error_msg)
 
         self.refresh_table()
 
@@ -628,14 +650,26 @@ class ProcessStatementsTab(QWidget):
         if not self.processor:
             return
 
-        self.status_label.setText("Classifying transactions...")
-        success, error = self.processor.classify_only(statement_id, force=force)
+        try:
+            self.status_label.setText("Classifying transactions...")
+            result = self.processor.classify_only(statement_id, force=force)
 
-        if success:
-            self.status_label.setText("Transactions classified successfully")
-        else:
-            self.status_label.setText(f"Error: {error}")
-            QMessageBox.warning(self, "Classification Error", error or "Unknown error")
+            # Validate return value
+            if not isinstance(result, tuple) or len(result) != 2:
+                raise ValueError(f"classify_only returned unexpected value: {result}")
+
+            success, error = result
+
+            if success:
+                self.status_label.setText("Transactions classified successfully")
+            else:
+                self.status_label.setText(f"Error: {error}")
+                QMessageBox.warning(self, "Classification Error", error or "Unknown error")
+        except Exception as e:
+            import traceback
+            error_msg = f"{str(e)}\n\nStack trace:\n{traceback.format_exc()}"
+            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Classification Error", error_msg)
 
         self.refresh_table()
 
@@ -707,6 +741,7 @@ class ProcessStatementsTab(QWidget):
         """Clear all filters."""
         self.account_filter.setCurrentText("All")
         self.status_filter.setCurrentText("All")
-        self.date_from.setDate(QDate.currentDate().addMonths(-3))
-        self.date_to.setDate(QDate.currentDate().addMonths(1))
+        # Set a very wide date range to show all statements
+        self.date_from.setDate(QDate(2000, 1, 1))
+        self.date_to.setDate(QDate(2099, 12, 31))
         self.refresh_table()
