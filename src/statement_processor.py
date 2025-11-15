@@ -272,13 +272,113 @@ class StatementProcessor:
 
         return new_statements, diagnostics
 
-    def process_statement(
+    def extract_only(
         self,
         statement_id: str,
         force: bool = False
     ) -> Tuple[bool, Optional[str]]:
         """
-        Process a single statement through extraction and classification.
+        Extract transactions from PDF only (parse step).
+
+        Args:
+            statement_id: Statement ID to process
+            force: If True, re-extract even if already extracted
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        if statement_id not in self.statements:
+            return False, "Statement not found"
+
+        record = self.statements[statement_id]
+
+        # Check if already extracted
+        if not force and record.status != ProcessingStatus.UNPROCESSED.value:
+            if record.status == ProcessingStatus.ERROR.value:
+                pass  # Allow retry on error
+            elif not force:
+                return True, None
+
+        try:
+            # Extract transactions from PDF
+            success, error = self._extract_statement(record)
+            if not success:
+                record.status = ProcessingStatus.ERROR.value
+                record.error_message = error
+                self._save_state()
+                return False, error
+
+            record.last_processed = datetime.now().isoformat()
+            record.error_message = None
+            self._save_state()
+
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Unexpected error: {str(e)}"
+            record.status = ProcessingStatus.ERROR.value
+            record.error_message = error_msg
+            self._save_state()
+            return False, error_msg
+
+    def classify_only(
+        self,
+        statement_id: str,
+        force: bool = False
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Classify transactions only (requires raw transactions to exist).
+
+        Args:
+            statement_id: Statement ID to process
+            force: If True, re-classify even if already classified
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        if statement_id not in self.statements:
+            return False, "Statement not found"
+
+        record = self.statements[statement_id]
+
+        # Must have extracted data first
+        if record.status == ProcessingStatus.UNPROCESSED.value:
+            return False, "Cannot classify: statement has not been extracted yet"
+
+        # Check if already classified
+        if not force and record.status == ProcessingStatus.CLASSIFIED.value:
+            return True, None
+
+        try:
+            # Classify transactions
+            success, error = self._classify_statement(record)
+            if not success:
+                record.status = ProcessingStatus.ERROR.value
+                record.error_message = error
+                self._save_state()
+                return False, error
+
+            record.status = ProcessingStatus.CLASSIFIED.value
+            record.last_processed = datetime.now().isoformat()
+            record.error_message = None
+            self._save_state()
+
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Unexpected error: {str(e)}"
+            record.status = ProcessingStatus.ERROR.value
+            record.error_message = error_msg
+            self._save_state()
+            return False, error_msg
+
+    def process_full(
+        self,
+        statement_id: str,
+        force: bool = False
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Process a single statement through extraction and classification (full pipeline).
 
         Args:
             statement_id: Statement ID to process
@@ -327,6 +427,17 @@ class StatementProcessor:
             record.error_message = error_msg
             self._save_state()
             return False, error_msg
+
+    def process_statement(
+        self,
+        statement_id: str,
+        force: bool = False
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Deprecated: Use process_full() instead.
+        Maintained for backward compatibility.
+        """
+        return self.process_full(statement_id, force)
 
     def _extract_statement(self, record: StatementRecord) -> Tuple[bool, Optional[str]]:
         """Extract transactions from PDF"""
