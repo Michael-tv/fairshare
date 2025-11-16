@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_manager import ConfigManager, Config
-from statement_processor import StatementProcessor, StatementRecord
+from statement_processor import StatementProcessor, StatementRecord, ProcessingStatus
 
 
 class ViewTransactionsTab(QWidget):
@@ -70,7 +70,14 @@ class ViewTransactionsTab(QWidget):
         # Status filter
         filters_layout.addWidget(QLabel("Status:"))
         self.status_filter = QComboBox()
-        self.status_filter.addItems(["Extracted & Classified", "Classified Only", "Extracted Only", "All"])
+        self.status_filter.addItems([
+            "Extracted & Classified",  # Keep as convenience default
+            "All",
+            "Unprocessed",
+            "Extracted",
+            "Classified",
+            "Error"
+        ])
         self.status_filter.setCurrentIndex(0)  # Default to "Extracted & Classified"
         self.status_filter.currentTextChanged.connect(self.refresh_statements)
         filters_layout.addWidget(self.status_filter)
@@ -226,12 +233,14 @@ class ViewTransactionsTab(QWidget):
 
         # Apply status filter
         status_filter = self.status_filter.currentText()
-        if status_filter == "Classified Only":
-            status_filtered = [s for s in all_statements if s.status == "classified"]
-        elif status_filter == "Extracted Only":
-            status_filtered = [s for s in all_statements if s.status == "extracted"]
-        elif status_filter == "Extracted & Classified":
-            status_filtered = [s for s in all_statements if s.status in ["extracted", "classified"]]
+        if status_filter == "Extracted & Classified":
+            # Convenience filter: show both extracted and classified
+            status_filtered = [s for s in all_statements
+                             if s.status in [ProcessingStatus.EXTRACTED.value, ProcessingStatus.CLASSIFIED.value]]
+        elif status_filter != "All":
+            # Standard status filters: convert filter text to enum value
+            status_value = ProcessingStatus[status_filter.upper()].value
+            status_filtered = [s for s in all_statements if s.status == status_value]
         else:  # "All"
             status_filtered = all_statements
 
@@ -302,10 +311,12 @@ class ViewTransactionsTab(QWidget):
         # Status
         status_item = QTableWidgetItem(record.status.upper())
         # Color based on status
-        if record.status == "classified":
+        if record.status == ProcessingStatus.CLASSIFIED.value:
             status_item.setBackground(QBrush(QColor(144, 238, 144)))  # Light green for classified
-        elif record.status == "extracted":
+        elif record.status == ProcessingStatus.EXTRACTED.value:
             status_item.setBackground(QBrush(QColor(255, 255, 200)))  # Light yellow for extracted
+        elif record.status == ProcessingStatus.ERROR.value:
+            status_item.setBackground(QBrush(QColor(255, 200, 200)))  # Light red for error
         self.statements_table.setItem(row, 3, status_item)
 
         # Transaction count
@@ -363,7 +374,7 @@ class ViewTransactionsTab(QWidget):
             # Determine which file to load based on status
             statements_dir = self.config.working_dir / account.processed_folder / "statements"
 
-            if statement.status == "classified":
+            if statement.status == ProcessingStatus.CLASSIFIED.value:
                 # Try classified file first
                 transactions_file = statements_dir / f"{statement_id}_classified.xlsx"
             else:
@@ -372,7 +383,7 @@ class ViewTransactionsTab(QWidget):
 
             # Fallback: if preferred file doesn't exist, try the other
             if not transactions_file.exists():
-                if statement.status == "classified":
+                if statement.status == ProcessingStatus.CLASSIFIED.value:
                     transactions_file = statements_dir / f"{statement_id}_raw.xlsx"
                 else:
                     transactions_file = statements_dir / f"{statement_id}_classified.xlsx"
