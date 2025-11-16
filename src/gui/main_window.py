@@ -17,6 +17,8 @@ from gui.view_transactions_tab import ViewTransactionsTab
 from gui.monthly_transactions_tab import MonthlyTransactionsTab
 from gui.classifier_tab import TransactionClassifierTab
 from gui.calculate_tab import CalculateTab
+from gui.template_validation_tab import TemplateValidationTab
+from gui.parser_diagnostics_tab import ParserDiagnosticsTab
 
 
 class MainWindow(QMainWindow):
@@ -44,6 +46,8 @@ class MainWindow(QMainWindow):
         self.monthly_transactions_tab = MonthlyTransactionsTab(self)
         self.classifier_tab = TransactionClassifierTab(self)
         self.calculate_tab = CalculateTab(self)
+        self.template_validation_tab = TemplateValidationTab(self)
+        self.parser_diagnostics_tab = ParserDiagnosticsTab(self)
 
         # Add tabs to widget in order
         self.tabs.addTab(self.settings_tab, "Settings")
@@ -52,6 +56,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.monthly_transactions_tab, "Monthly Transactions")
         self.tabs.addTab(self.classifier_tab, "Transaction Classifier")
         self.tabs.addTab(self.calculate_tab, "Calculate")
+        self.tabs.addTab(self.template_validation_tab, "Template Validation")
+        self.tabs.addTab(self.parser_diagnostics_tab, "Parser Diagnostics")
 
         # Set initial focus on settings tab
         self.tabs.setCurrentIndex(0)
