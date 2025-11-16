@@ -1,17 +1,23 @@
 """
-Calculate tab - Fair share split calculation.
+Calculate tab - Fair share split calculation from processed transactions.
 """
 
 from pathlib import Path
+from datetime import datetime, date
+from dateutil.relativedelta import relativedelta
+from decimal import Decimal
+import pandas as pd
+from typing import List, Dict, Optional
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QPushButton, QLabel, QLineEdit, QRadioButton,
-    QButtonGroup, QFileDialog, QTextEdit, QCheckBox
+    QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 
-from person_sheet_importer import PersonSheetImporter
+from config_manager import ConfigManager, Config
+from models import Person, Income, Expense, FinancialPeriod, IncomeType, ExpenseType, ExpenseCategory
 from split_calculator import FinancialSplitter
 from checkpoint_manager import CheckpointManager
 from reports import ReportGenerator
@@ -19,36 +25,32 @@ from gui.dialogs import ResultsDialog
 
 
 class CalculationThread(QThread):
-    """Background thread for performing calculations."""
+    """Background thread for performing calculations from processed transactions."""
 
     finished = pyqtSignal(object, object)  # result, error
     progress = pyqtSignal(str)
 
-    def __init__(self, person1_file, person2_file, use_gross_mode):
+    def __init__(self, config: Config, selected_month: str, use_gross_mode: bool):
         super().__init__()
-        self.person1_file = person1_file
-        self.person2_file = person2_file
+        self.config = config
+        self.selected_month = selected_month
         self.use_gross_mode = use_gross_mode
 
     def run(self):
         """Run the calculation in background."""
         try:
-            self.progress.emit("Loading Person 1 data...")
-            importer = PersonSheetImporter()
+            self.progress.emit("Loading transactions from processed files...")
 
-            # Get person names from filenames
-            person1_name = Path(self.person1_file).stem.split('_')[0]
-            person2_name = Path(self.person2_file).stem.split('_')[0]
+            # Load all transactions for the selected month
+            all_transactions = self._load_monthly_transactions()
 
-            self.progress.emit("Loading Person 2 data...")
+            self.progress.emit("Analyzing transactions and calculating income...")
 
-            # Import household month
-            period = importer.import_household_month(
-                self.person1_file,
-                person1_name,
-                self.person2_file,
-                person2_name
-            )
+            # Build financial period from transactions
+            period = self._build_financial_period(all_transactions)
+
+            if len(period.people) < 2:
+                raise Exception("Need at least 2 users with transactions to calculate fair share")
 
             self.progress.emit("Calculating fair share split...")
 
@@ -65,26 +67,202 @@ class CalculationThread(QThread):
 
             # Save to checkpoint
             checkpoint = CheckpointManager()
-            checkpoint.add_monthly_result(result, self.person1_file, self.person2_file)
+            # Create placeholder file paths for checkpoint (using month as identifier)
+            file1 = f"{period.people[0].name}_{self.selected_month}.xlsx"
+            file2 = f"{period.people[1].name}_{self.selected_month}.xlsx"
+            checkpoint.add_monthly_result(result, file1, file2)
 
             self.progress.emit("Complete!")
             self.finished.emit(result, None)
 
         except Exception as e:
-            self.finished.emit(None, str(e))
+            import traceback
+            full_error = f"{str(e)}\n\nStack trace:\n{traceback.format_exc()}"
+            self.finished.emit(None, full_error)
+
+    def _load_monthly_transactions(self) -> List[Dict]:
+        """Load all transactions for the selected month from all accounts."""
+        all_transactions = []
+
+        # Load from user accounts
+        for user in self.config.users:
+            for account in user.accounts:
+                trans_file = (
+                    self.config.working_dir /
+                    account.processed_folder /
+                    "months" /
+                    self.selected_month /
+                    f"{account.name.replace(' ', '_')}_transactions.xlsx"
+                )
+
+                if trans_file.exists():
+                    df = pd.read_excel(trans_file)
+                    for _, row in df.iterrows():
+                        trans_dict = row.to_dict()
+                        trans_dict['_user'] = user.name
+                        trans_dict['_user_id'] = user.id
+                        trans_dict['_account'] = account.name
+                        all_transactions.append(trans_dict)
+
+        # Load from shared accounts
+        for account in self.config.shared_accounts:
+            trans_file = (
+                self.config.working_dir /
+                account.processed_folder /
+                "months" /
+                self.selected_month /
+                f"{account.name.replace(' ', '_')}_transactions.xlsx"
+            )
+
+            if trans_file.exists():
+                df = pd.read_excel(trans_file)
+                for _, row in df.iterrows():
+                    trans_dict = row.to_dict()
+                    trans_dict['_user'] = "Shared"
+                    trans_dict['_user_id'] = "shared"
+                    trans_dict['_account'] = account.name
+                    all_transactions.append(trans_dict)
+
+        if not all_transactions:
+            raise Exception(f"No transactions found for month {self.selected_month}")
+
+        return all_transactions
+
+    def _build_financial_period(self, transactions: List[Dict]) -> FinancialPeriod:
+        """Build a FinancialPeriod object from transaction data."""
+        # Group transactions by user
+        user_transactions = {}
+        for trans in transactions:
+            user_id = trans.get('_user_id', 'unknown')
+            if user_id not in user_transactions:
+                user_transactions[user_id] = []
+            user_transactions[user_id].append(trans)
+
+        # Create Person objects for each user
+        people = []
+        for user_id, user_trans in user_transactions.items():
+            if user_id == "shared":
+                continue  # Skip shared account for person creation
+
+            # Get user name
+            user_name = user_trans[0].get('_user', user_id)
+
+            # Separate income and expenses
+            income_items = []
+            expense_items = []
+
+            for trans in user_trans:
+                amount = trans.get('Amount', 0)
+                if pd.isna(amount):
+                    continue
+
+                amount_decimal = Decimal(str(abs(amount)))
+                description = str(trans.get('Description', 'Transaction'))
+                trans_type = str(trans.get('Type', '')).upper()
+                assigned_user = str(trans.get('Assigned User', user_name))
+
+                # Determine if it's income or expense based on amount sign
+                # Positive = income, Negative = expense
+                if amount > 0:
+                    # Income
+                    income_items.append(Income(
+                        description=description,
+                        amount=amount_decimal,
+                        income_type=IncomeType.OTHER
+                    ))
+                else:
+                    # Expense
+                    # Map transaction type to expense type
+                    if trans_type == "HOUSEHOLD":
+                        expense_type = ExpenseType.SHARED
+                    elif trans_type == "INDIVIDUAL":
+                        expense_type = ExpenseType.INDIVIDUAL
+                    else:
+                        expense_type = ExpenseType.SHARED  # Default to shared
+
+                    # Try to map category
+                    category_str = str(trans.get('Category', '')).upper()
+                    try:
+                        category = ExpenseCategory[category_str] if category_str else ExpenseCategory.OTHER
+                    except KeyError:
+                        category = ExpenseCategory.OTHER
+
+                    expense_items.append(Expense(
+                        description=description,
+                        amount=amount_decimal,
+                        category=category,
+                        expense_type=expense_type,
+                        paid_by=assigned_user  # Who actually paid for this
+                    ))
+
+            # Create Person object
+            person = Person(
+                name=user_name,
+                income=income_items,
+                expenses=expense_items
+            )
+            people.append(person)
+
+        # Handle shared account transactions - distribute to users
+        if "shared" in user_transactions:
+            for trans in user_transactions["shared"]:
+                amount = trans.get('Amount', 0)
+                if pd.isna(amount) or amount >= 0:
+                    continue  # Only process expenses from shared accounts
+
+                amount_decimal = Decimal(str(abs(amount)))
+                description = str(trans.get('Description', 'Shared Transaction'))
+                assigned_user = str(trans.get('Assigned User', ''))
+
+                # Determine which person to assign this to
+                target_person = None
+                for person in people:
+                    if person.name == assigned_user:
+                        target_person = person
+                        break
+
+                if not target_person and people:
+                    target_person = people[0]  # Default to first person if not assigned
+
+                if target_person:
+                    category_str = str(trans.get('Category', '')).upper()
+                    try:
+                        category = ExpenseCategory[category_str] if category_str else ExpenseCategory.OTHER
+                    except KeyError:
+                        category = ExpenseCategory.OTHER
+
+                    trans_type = str(trans.get('Type', '')).upper()
+                    expense_type = ExpenseType.SHARED if trans_type == "HOUSEHOLD" else ExpenseType.INDIVIDUAL
+
+                    target_person.expenses.append(Expense(
+                        description=description,
+                        amount=amount_decimal,
+                        category=category,
+                        expense_type=expense_type,
+                        paid_by=assigned_user or target_person.name
+                    ))
+
+        if not people:
+            raise Exception("No users found with transactions")
+
+        # Create FinancialPeriod
+        period = FinancialPeriod(people=people)
+        return period
 
 
 class CalculateTab(QWidget):
-    """Tab for calculating fair share split."""
+    """Tab for calculating fair share split from processed transactions."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = parent
         self.calculation_thread = None
         self.last_result = None
-        self.user_file_inputs = []  # Store references to user file input widgets
+        self.config: Optional[Config] = None
+        self.available_months: List[str] = []
 
         self.init_ui()
+        self.load_config()
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -101,77 +279,35 @@ class CalculateTab(QWidget):
 
         # Description
         description = QLabel(
-            "Upload person Excel files to calculate fair share splits based on proportional income."
+            "Calculate fair share splits based on processed transactions from bank statements."
         )
         description.setWordWrap(True)
         layout.addWidget(description)
 
-        # Mode selection - Config vs Manual
-        mode_info_layout = QHBoxLayout()
-        mode_info_label = QLabel("Mode:")
-        mode_info_layout.addWidget(mode_info_label)
+        # Period selection group
+        period_group = QGroupBox("Select Period")
+        period_layout = QVBoxLayout()
 
-        self.use_config_checkbox = QCheckBox("Use Settings Configuration")
-        self.use_config_checkbox.setChecked(False)
-        self.use_config_checkbox.stateChanged.connect(self.on_mode_changed)
-        mode_info_layout.addWidget(self.use_config_checkbox)
+        # Month selector
+        month_layout = QHBoxLayout()
+        month_layout.addWidget(QLabel("Month:"))
+        self.month_combo = QComboBox()
+        self.month_combo.setMinimumWidth(200)
+        month_layout.addWidget(self.month_combo, 1)
 
-        self.reload_config_btn = QPushButton("Reload from Settings")
-        self.reload_config_btn.clicked.connect(self.load_from_config)
-        self.reload_config_btn.setEnabled(False)
-        mode_info_layout.addWidget(self.reload_config_btn)
+        refresh_btn = QPushButton("Refresh Months")
+        refresh_btn.clicked.connect(self.scan_available_months)
+        month_layout.addWidget(refresh_btn)
 
-        mode_info_layout.addStretch()
-        layout.addLayout(mode_info_layout)
+        period_layout.addLayout(month_layout)
 
-        # File selection group (dynamic based on mode)
-        self.file_group = QGroupBox("Select Person Excel Files")
-        self.file_layout = QVBoxLayout()
+        # Info label showing income mode from settings
+        self.mode_info_label = QLabel()
+        self.mode_info_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        period_layout.addWidget(self.mode_info_label)
 
-        # Default: Person 1 file
-        p1_layout = QHBoxLayout()
-        p1_layout.addWidget(QLabel("Person 1:"))
-        self.person1_path = QLineEdit()
-        self.person1_path.setPlaceholderText("Select Excel file for Person 1...")
-        p1_layout.addWidget(self.person1_path, 1)
-        self.person1_btn = QPushButton("Browse...")
-        self.person1_btn.clicked.connect(lambda: self.browse_person_file(0))
-        p1_layout.addWidget(self.person1_btn)
-        self.file_layout.addLayout(p1_layout)
-        self.user_file_inputs.append((QLabel("Person 1:"), self.person1_path, self.person1_btn, p1_layout))
-
-        # Default: Person 2 file
-        p2_layout = QHBoxLayout()
-        p2_layout.addWidget(QLabel("Person 2:"))
-        self.person2_path = QLineEdit()
-        self.person2_path.setPlaceholderText("Select Excel file for Person 2...")
-        p2_layout.addWidget(self.person2_path, 1)
-        self.person2_btn = QPushButton("Browse...")
-        self.person2_btn.clicked.connect(lambda: self.browse_person_file(1))
-        p2_layout.addWidget(self.person2_btn)
-        self.file_layout.addLayout(p2_layout)
-        self.user_file_inputs.append((QLabel("Person 2:"), self.person2_path, self.person2_btn, p2_layout))
-
-        self.file_group.setLayout(self.file_layout)
-        layout.addWidget(self.file_group)
-
-        # Income mode selection
-        mode_group = QGroupBox("Income Mode")
-        mode_layout = QVBoxLayout()
-
-        self.mode_group = QButtonGroup()
-        self.net_mode = QRadioButton("NET Mode (Default) - Income is take-home pay")
-        self.gross_mode = QRadioButton("GROSS Mode - Calculate tax from gross salary")
-        self.net_mode.setChecked(True)
-
-        self.mode_group.addButton(self.net_mode)
-        self.mode_group.addButton(self.gross_mode)
-
-        mode_layout.addWidget(self.net_mode)
-        mode_layout.addWidget(self.gross_mode)
-
-        mode_group.setLayout(mode_layout)
-        layout.addWidget(mode_group)
+        period_group.setLayout(period_layout)
+        layout.addWidget(period_group)
 
         # Calculate button
         button_layout = QHBoxLayout()
@@ -216,196 +352,115 @@ class CalculateTab(QWidget):
         results_group.setLayout(results_layout)
         layout.addWidget(results_group, 1)
 
-    def browse_person_file(self, index):
-        """Browse for person Excel file by index."""
-        if index >= len(self.user_file_inputs):
-            return
-
-        _, line_edit, _, _ = self.user_file_inputs[index]
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Select Excel File",
-            "",
-            "Excel Files (*.xlsx *.xls)"
-        )
-        if file_path:
-            line_edit.setText(file_path)
-
-    def on_mode_changed(self, state):
-        """Handle mode change between config and manual."""
-        use_config = (state == Qt.Checked)
-        self.reload_config_btn.setEnabled(use_config)
-
-        if use_config:
-            self.load_from_config()
-        else:
-            # Reset to 2-person manual mode
-            self.reset_to_manual_mode()
-
-    def load_from_config(self):
-        """Load user configuration from settings tab."""
+    def load_config(self):
+        """Load configuration and scan for available months."""
         try:
-            # Get config from settings tab
-            if not hasattr(self.main_window, 'settings_tab'):
-                self.main_window.show_error(
-                    "Configuration Error",
-                    "Settings tab not available. Please configure users in Settings first."
-                )
-                self.use_config_checkbox.setChecked(False)
-                return
+            self.config = ConfigManager.load()
 
-            config_data = self.main_window.settings_tab.get_config_data()
-            users = config_data.get('users', [])
+            # Update mode info label
+            mode = self.config.get_mode()
+            self.mode_info_label.setText(
+                f"Income mode: {mode} (configured in Settings tab)"
+            )
 
-            if len(users) < 2:
-                self.main_window.show_warning(
-                    "Insufficient Users",
-                    "Configuration must have at least 2 users.\n\n"
-                    "Please add users in the Settings tab."
-                )
-                self.use_config_checkbox.setChecked(False)
-                return
-
-            # Clear existing inputs
-            for _, line_edit, btn, layout in self.user_file_inputs:
-                layout.setParent(None)
-
-            self.user_file_inputs.clear()
-
-            # Create inputs for each user from config
-            for i, user in enumerate(users):
-                user_layout = QHBoxLayout()
-                label = QLabel(f"{user['name']}:")
-                user_layout.addWidget(label)
-
-                line_edit = QLineEdit()
-                # Pre-fill with configured path if available
-                sheet_path = user.get('person_sheet_path', '')
-                line_edit.setText(sheet_path)
-                line_edit.setPlaceholderText(f"Select Excel file for {user['name']}...")
-                user_layout.addWidget(line_edit, 1)
-
-                btn = QPushButton("Browse...")
-                btn.clicked.connect(lambda checked, idx=i: self.browse_person_file(idx))
-                user_layout.addWidget(btn)
-
-                self.file_layout.addLayout(user_layout)
-                self.user_file_inputs.append((label, line_edit, btn, user_layout))
-
-            self.file_group.setTitle(f"User Excel Files ({len(users)} users from configuration)")
+            self.scan_available_months()
 
         except Exception as e:
-            self.main_window.show_error(
-                "Load Error",
-                f"Error loading configuration:\n\n{str(e)}"
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                f"Failed to load configuration:\n\n{str(e)}"
             )
-            self.use_config_checkbox.setChecked(False)
 
-    def reset_to_manual_mode(self):
-        """Reset to default 2-person manual mode."""
-        # Clear existing inputs
-        for _, line_edit, btn, layout in self.user_file_inputs:
-            layout.setParent(None)
+    def scan_available_months(self):
+        """Scan for available month folders across all accounts."""
+        if not self.config:
+            return
 
-        self.user_file_inputs.clear()
+        months_set = set()
 
-        # Recreate default 2-person layout
-        # Person 1
-        p1_layout = QHBoxLayout()
-        p1_label = QLabel("Person 1:")
-        p1_layout.addWidget(p1_label)
-        self.person1_path = QLineEdit()
-        self.person1_path.setPlaceholderText("Select Excel file for Person 1...")
-        p1_layout.addWidget(self.person1_path, 1)
-        self.person1_btn = QPushButton("Browse...")
-        self.person1_btn.clicked.connect(lambda: self.browse_person_file(0))
-        p1_layout.addWidget(self.person1_btn)
-        self.file_layout.addLayout(p1_layout)
-        self.user_file_inputs.append((p1_label, self.person1_path, self.person1_btn, p1_layout))
+        # Scan all accounts for month folders
+        for user in self.config.users:
+            for account in user.accounts:
+                months_path = self.config.working_dir / account.processed_folder / "months"
+                if months_path.exists():
+                    for month_folder in months_path.iterdir():
+                        if month_folder.is_dir() and len(month_folder.name) == 7:  # YYYY-MM format
+                            months_set.add(month_folder.name)
 
-        # Person 2
-        p2_layout = QHBoxLayout()
-        p2_label = QLabel("Person 2:")
-        p2_layout.addWidget(p2_label)
-        self.person2_path = QLineEdit()
-        self.person2_path.setPlaceholderText("Select Excel file for Person 2...")
-        p2_layout.addWidget(self.person2_path, 1)
-        self.person2_btn = QPushButton("Browse...")
-        self.person2_btn.clicked.connect(lambda: self.browse_person_file(1))
-        p2_layout.addWidget(self.person2_btn)
-        self.file_layout.addLayout(p2_layout)
-        self.user_file_inputs.append((p2_label, self.person2_path, self.person2_btn, p2_layout))
+        # Also check shared accounts
+        for account in self.config.shared_accounts:
+            months_path = self.config.working_dir / account.processed_folder / "months"
+            if months_path.exists():
+                for month_folder in months_path.iterdir():
+                    if month_folder.is_dir() and len(month_folder.name) == 7:
+                        months_set.add(month_folder.name)
 
-        self.file_group.setTitle("Select Person Excel Files")
+        # Sort months in descending order (most recent first)
+        self.available_months = sorted(list(months_set), reverse=True)
+
+        # Populate month combo
+        current_selection = self.month_combo.currentData()
+        self.month_combo.clear()
+        for month in self.available_months:
+            # Format as "November 2024" for display
+            try:
+                month_date = datetime.strptime(month, "%Y-%m")
+                display_text = month_date.strftime("%B %Y")
+                self.month_combo.addItem(display_text, month)
+            except:
+                self.month_combo.addItem(month, month)
+
+        # Restore previous selection if possible
+        if current_selection in self.available_months:
+            index = self.month_combo.findData(current_selection)
+            if index >= 0:
+                self.month_combo.setCurrentIndex(index)
+
+        if self.available_months:
+            self.calculate_btn.setEnabled(True)
+        else:
+            self.calculate_btn.setEnabled(False)
+            QMessageBox.information(
+                self,
+                "No Months Found",
+                "No processed transaction months found.\n\n"
+                "Please process bank statements in the 'Process Statements' tab first."
+            )
 
     def calculate_split(self):
-        """Calculate the fair share split."""
-        # Collect all file paths
-        file_paths = []
-        for _, line_edit, _, _ in self.user_file_inputs:
-            file_path = line_edit.text().strip()
-            if file_path:
-                file_paths.append(file_path)
-
-        # Validate we have exactly 2 files (current system limitation)
-        if len(file_paths) < 2:
-            self.main_window.show_error(
-                "Missing Files",
-                "Please select Excel files for at least 2 people."
+        """Calculate the fair share split from processed transactions."""
+        selected_month = self.month_combo.currentData()
+        if not selected_month:
+            QMessageBox.warning(
+                self,
+                "No Month Selected",
+                "Please select a month to calculate."
             )
             return
 
-        if len(file_paths) > 2:
-            self.main_window.show_warning(
-                "Too Many Files",
-                f"Selected {len(file_paths)} files, but the system currently only supports "
-                "splitting between exactly 2 people.\n\n"
-                "Only the first 2 files will be processed."
-            )
-
-        # Use first two files
-        person1_file = file_paths[0]
-        person2_file = file_paths[1]
-
-        # Validate files exist
-        if not Path(person1_file).exists():
-            self.main_window.show_error(
-                "File Not Found",
-                f"First person file does not exist:\n{person1_file}"
+        if not self.config:
+            QMessageBox.critical(
+                self,
+                "Configuration Error",
+                "Configuration not loaded. Please restart the application."
             )
             return
-
-        if not Path(person2_file).exists():
-            self.main_window.show_error(
-                "File Not Found",
-                f"Second person file does not exist:\n{person2_file}"
-            )
-            return
-
-        # Check for duplicate month
-        try:
-            checkpoint = CheckpointManager()
-            # Try to extract period from filename
-            person1_name = Path(person1_file).stem.split('_')[0]
-            # This is a basic check - actual validation happens in the thread
-        except Exception:
-            pass  # Continue anyway
 
         # Disable UI during calculation
         self.calculate_btn.setEnabled(False)
-        for _, _, btn, _ in self.user_file_inputs:
-            btn.setEnabled(False)
-        self.net_mode.setEnabled(False)
-        self.gross_mode.setEnabled(False)
+        self.month_combo.setEnabled(False)
 
         # Clear previous results
         self.results_text.clear()
         self.view_details_btn.setEnabled(False)
         self.view_categories_btn.setEnabled(False)
 
+        # Get income mode from settings
+        use_gross = self.config.is_gross_mode()
+
         # Start calculation thread
-        use_gross = self.gross_mode.isChecked()
-        self.calculation_thread = CalculationThread(person1_file, person2_file, use_gross)
+        self.calculation_thread = CalculationThread(self.config, selected_month, use_gross)
         self.calculation_thread.progress.connect(self.on_progress)
         self.calculation_thread.finished.connect(self.on_calculation_finished)
         self.calculation_thread.start()
@@ -418,14 +473,15 @@ class CalculateTab(QWidget):
         """Handle calculation completion."""
         # Re-enable UI
         self.calculate_btn.setEnabled(True)
-        for _, _, btn, _ in self.user_file_inputs:
-            btn.setEnabled(True)
-        self.net_mode.setEnabled(True)
-        self.gross_mode.setEnabled(True)
+        self.month_combo.setEnabled(True)
         self.progress_label.setText("")
 
         if error:
-            self.main_window.show_error("Calculation Error", f"An error occurred:\n\n{error}")
+            QMessageBox.critical(
+                self,
+                "Calculation Error",
+                f"An error occurred during calculation:\n\n{error}"
+            )
             return
 
         # Store result
@@ -450,7 +506,8 @@ class CalculateTab(QWidget):
             person_to = result.person2_name if result.person1_balance < 0 else result.person1_name
             transfer = abs(result.person1_balance)
 
-            self.main_window.show_info(
+            QMessageBox.information(
+                self,
                 "Calculation Complete",
                 f"Month processed successfully!\n\n"
                 f"{person_from} should pay {person_to}:\n"
@@ -458,7 +515,13 @@ class CalculateTab(QWidget):
             )
 
         except Exception as e:
-            self.main_window.show_error("Report Error", f"Error generating report:\n\n{str(e)}")
+            import traceback
+            full_error = f"{str(e)}\n\nStack trace:\n{traceback.format_exc()}"
+            QMessageBox.critical(
+                self,
+                "Report Error",
+                f"Error generating report:\n\n{full_error}"
+            )
 
     def view_details(self):
         """Show detailed expense breakdown."""
@@ -476,7 +539,11 @@ class CalculateTab(QWidget):
             dialog.exec_()
 
         except Exception as e:
-            self.main_window.show_error("Error", f"Error generating breakdown:\n\n{str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error generating breakdown:\n\n{str(e)}"
+            )
 
     def view_categories(self):
         """Show category summary."""
@@ -491,4 +558,8 @@ class CalculateTab(QWidget):
             dialog.exec_()
 
         except Exception as e:
-            self.main_window.show_error("Error", f"Error generating category summary:\n\n{str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error generating category summary:\n\n{str(e)}"
+            )

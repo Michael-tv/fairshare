@@ -130,6 +130,36 @@ class StatementProcessor:
         with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
+    def sync_state_with_filesystem(self):
+        """
+        Sync state file with actual files on disk.
+
+        Updates statement status from 'extracted' to 'classified' when
+        classified files exist on disk.
+        """
+        updated_count = 0
+
+        for stmt_id, record in self.statements.items():
+            if record.status == ProcessingStatus.EXTRACTED.value:
+                # Check if classified file exists
+                try:
+                    statements_dir = self._get_statements_dir(record)
+                    classified_file = statements_dir / f"{record.id}_classified.xlsx"
+
+                    if classified_file.exists():
+                        # Update status to classified
+                        record.status = ProcessingStatus.CLASSIFIED.value
+                        updated_count += 1
+                except Exception as e:
+                    # Skip records with path issues
+                    print(f"Warning: Could not check files for statement {stmt_id}: {e}")
+                    continue
+
+        # Save updated state if any changes were made
+        if updated_count > 0:
+            self._save_state()
+            print(f"Synced {updated_count} statement(s) status from 'extracted' to 'classified'")
+
     def scan_for_statements(self) -> Tuple[List[StatementRecord], Dict[str, Any]]:
         """
         Scan all account folders for PDF statements.

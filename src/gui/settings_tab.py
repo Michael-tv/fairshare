@@ -293,6 +293,39 @@ class SettingsTab(QWidget):
         mode_group.setLayout(mode_layout)
         general_layout.addWidget(mode_group)
 
+        # Financial Year Configuration
+        fy_group = QGroupBox("Financial Year Configuration")
+        fy_layout = QFormLayout()
+
+        # Financial year start month dropdown
+        self.fy_start_month_combo = QComboBox()
+        months = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+        for i, month in enumerate(months, 1):
+            self.fy_start_month_combo.addItem(month, i)
+        fy_layout.addRow("Financial Year Start Month:", self.fy_start_month_combo)
+
+        # Current financial year label (read-only display)
+        self.current_fy_label = QLabel("FY 2024-2025")
+        self.current_fy_label.setStyleSheet("font-weight: bold; color: #2c3e50; padding: 5px;")
+        fy_layout.addRow("Current Financial Year:", self.current_fy_label)
+
+        # Connect signal to update label when month changes
+        self.fy_start_month_combo.currentIndexChanged.connect(self.update_fy_label)
+
+        fy_info = QLabel(
+            "The financial year determines the period for fair share calculations.\n"
+            "Example: If set to April, FY 2024-2025 runs from April 2024 to March 2025."
+        )
+        fy_info.setWordWrap(True)
+        fy_info.setStyleSheet("color: #666; font-size: 9pt; padding: 5px;")
+        fy_layout.addRow(fy_info)
+
+        fy_group.setLayout(fy_layout)
+        general_layout.addWidget(fy_group)
+
         # Working Directory
         working_dir_group = QGroupBox("Working Directory")
         working_dir_layout = QHBoxLayout()
@@ -508,6 +541,13 @@ class SettingsTab(QWidget):
         index = self.mode_combo.findData(mode)
         if index >= 0:
             self.mode_combo.setCurrentIndex(index)
+
+        # Load financial year start month
+        fy_start_month = self.config_data.get('financial_year_start_month', 1)
+        index = self.fy_start_month_combo.findData(fy_start_month)
+        if index >= 0:
+            self.fy_start_month_combo.setCurrentIndex(index)
+        self.update_fy_label()
 
         # Load matching settings
         matching = self.config_data.get('matching', {})
@@ -887,6 +927,7 @@ class SettingsTab(QWidget):
             # Update config data from UI - General settings
             self.config_data['working_dir'] = self.working_dir_edit.text().strip()
             self.config_data['mode'] = self.mode_combo.currentData()
+            self.config_data['financial_year_start_month'] = self.fy_start_month_combo.currentData()
 
             # Update matching settings
             try:
@@ -990,3 +1031,33 @@ class SettingsTab(QWidget):
     def is_gross_mode(self) -> bool:
         """Check if GROSS mode is enabled."""
         return self.get_mode() == 'GROSS'
+
+    def get_financial_year_start_month(self) -> int:
+        """Get the financial year start month (1-12)."""
+        return self.config_data.get('financial_year_start_month', 1)
+
+    def update_fy_label(self):
+        """Update the financial year label based on current selection."""
+        from datetime import date
+        from dateutil.relativedelta import relativedelta
+
+        start_month = self.fy_start_month_combo.currentData()
+        if start_month is None:
+            return
+
+        today = date.today()
+        year = today.year
+
+        # If we're before the start month, the FY started last year
+        if today.month < start_month:
+            year -= 1
+
+        start_date = date(year, start_month, 1)
+        end_date = start_date + relativedelta(years=1) - relativedelta(days=1)
+
+        if start_date.year == end_date.year:
+            fy_label = f"FY {start_date.year}: {start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')}"
+        else:
+            fy_label = f"FY {start_date.year}-{end_date.year}: {start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')}"
+
+        self.current_fy_label.setText(fy_label)

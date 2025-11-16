@@ -26,7 +26,8 @@ parsing:
   # Format: DD Mon Description Amount Balance [Kt]
   # Note: Money OUT (Dt) transactions have NO indicator, Money IN transactions have "Kt"
   # Note: Bilingual month names (Mei, Okt, Des for Afrikaans)
-  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+(?:(?P<balance>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+)?(?P<indicator>Kt)?'
+  # Note: Balance is REQUIRED - all transactions show the running balance
+  transaction_pattern: '(?P<day>\d{1,2})\s+(?P<month>Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+(?P<description>.+?)\s+(?P<amount>\d{1,3}(?:[,\s]\d{3})*\.\d{2})\s+(?P<balance>\d{1,3}(?:[,\s]\d{3})*\.\d{2})(?:\s+(?P<indicator>Kt))?'
 
   # Date parsing configuration
   date:

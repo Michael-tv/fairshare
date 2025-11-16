@@ -45,5 +45,6 @@
     "enabled": true,
     "default_shared_type": "SHARED"
   },
-  "mode": "NET"
+  "mode": "NET",
+  "financial_year_start_month": 1
 }

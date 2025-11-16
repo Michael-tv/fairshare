@@ -8,10 +8,12 @@ REFACTORED: Consolidated AccountConfig and SharedAccountConfig into single class
 
 import json
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from src.exceptions import ConfigurationError, ValidationError
 
@@ -90,6 +92,8 @@ class Config:
     shared_accounts: List[AccountConfig]  # Now same type as user accounts
     matching: MatchingConfig
     classification: ClassificationConfig
+    mode: str = "NET"  # NET or GROSS income calculation mode
+    financial_year_start_month: int = 1  # 1-12, default January
 
     def get_user_names(self) -> List[str]:
         """Get list of user names"""
@@ -116,6 +120,65 @@ class Config:
         for account in self.get_all_accounts():
             folders.append(self.working_dir / account.processed_folder)
         return folders
+
+    def get_mode(self) -> str:
+        """Get calculation mode (NET or GROSS)"""
+        return self.mode
+
+    def is_gross_mode(self) -> bool:
+        """Check if using GROSS income mode"""
+        return self.mode == "GROSS"
+
+    def get_financial_year_start_month(self) -> int:
+        """Get financial year start month (1-12)"""
+        return self.financial_year_start_month
+
+    def get_current_financial_year_period(self, reference_date: Optional[date] = None) -> Tuple[date, date]:
+        """
+        Get the current financial year period based on start month.
+
+        Args:
+            reference_date: Date to use for calculation (default: today)
+
+        Returns:
+            Tuple of (start_date, end_date) for the current financial year
+
+        Example:
+            If financial_year_start_month = 4 (April) and today is 2024-11-15:
+            Returns (2024-04-01, 2025-03-31)
+
+            If today is 2024-02-15:
+            Returns (2023-04-01, 2024-03-31)
+        """
+        if reference_date is None:
+            reference_date = date.today()
+
+        start_month = self.financial_year_start_month
+        year = reference_date.year
+
+        # If we're before the start month, the FY started last year
+        if reference_date.month < start_month:
+            year -= 1
+
+        start_date = date(year, start_month, 1)
+        # End date is one day before the next year's start
+        end_date = start_date + relativedelta(years=1) - relativedelta(days=1)
+
+        return start_date, end_date
+
+    def get_financial_year_label(self, reference_date: Optional[date] = None) -> str:
+        """
+        Get a display label for the current financial year.
+
+        Returns:
+            String like "FY 2024-2025" or "FY 2024" if within same year
+        """
+        start_date, end_date = self.get_current_financial_year_period(reference_date)
+
+        if start_date.year == end_date.year:
+            return f"FY {start_date.year}"
+        else:
+            return f"FY {start_date.year}-{end_date.year}"
 
 
 class ConfigManager:
@@ -286,6 +349,20 @@ class ConfigManager:
             default_shared_type=classif_data.get("default_shared_type", "SHARED"),
         )
 
+        # Parse mode (NET or GROSS)
+        mode = data.get("mode", "NET")
+        if mode not in ["NET", "GROSS"]:
+            raise ValidationError("mode", "Mode must be 'NET' or 'GROSS'", mode)
+
+        # Parse financial year start month
+        fy_start_month = data.get("financial_year_start_month", 1)
+        if not isinstance(fy_start_month, int) or fy_start_month < 1 or fy_start_month > 12:
+            raise ValidationError(
+                "financial_year_start_month",
+                "Financial year start month must be an integer between 1 and 12",
+                fy_start_month
+            )
+
         working_dir = Path(data["working_dir"])
 
         return Config(
@@ -294,6 +371,8 @@ class ConfigManager:
             shared_accounts=shared_accounts,
             matching=matching,
             classification=classification,
+            mode=mode,
+            financial_year_start_month=fy_start_month,
         )
 
     @staticmethod
@@ -343,6 +422,8 @@ class ConfigManager:
                 "merchant_similarity_threshold": 0.6,
             },
             "classification": {"enabled": True, "default_shared_type": "SHARED"},
+            "mode": "NET",
+            "financial_year_start_month": 1
         }
 
         with open(output_path, "w", encoding="utf-8") as f:

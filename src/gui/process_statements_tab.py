@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_manager import ConfigManager, Config
 from statement_processor import StatementProcessor, StatementRecord, ProcessingStatus
-from gui.dialogs import TransactionViewerDialog
 
 
 class ProcessingThread(QThread):
@@ -481,12 +480,6 @@ class ProcessStatementsTab(QWidget):
             layout.addWidget(process_btn)
 
         elif record.status == ProcessingStatus.EXTRACTED.value:
-            # View Transactions button
-            view_btn = QPushButton("View Transactions")
-            view_btn.setToolTip("View extracted transactions")
-            view_btn.clicked.connect(lambda: self.view_transactions(record.id))
-            layout.addWidget(view_btn)
-
             # Re-Parse button
             reparse_btn = QPushButton("Re-Parse")
             reparse_btn.setToolTip("Re-extract transactions from PDF")
@@ -500,12 +493,6 @@ class ProcessStatementsTab(QWidget):
             layout.addWidget(classify_btn)
 
         elif record.status == ProcessingStatus.CLASSIFIED.value:
-            # View Transactions button
-            view_btn = QPushButton("View Transactions")
-            view_btn.setToolTip("View classified transactions")
-            view_btn.clicked.connect(lambda: self.view_transactions(record.id))
-            layout.addWidget(view_btn)
-
             # Re-Parse button
             reparse_btn = QPushButton("Re-Parse")
             reparse_btn.setToolTip("Re-extract transactions from PDF")
@@ -758,65 +745,3 @@ class ProcessStatementsTab(QWidget):
         self.date_from.setDate(QDate(2000, 1, 1))
         self.date_to.setDate(QDate(2099, 12, 31))
         self.refresh_table()
-
-    def view_transactions(self, statement_id: str):
-        """View transactions for a statement."""
-        if not self.processor:
-            return
-
-        record = self.processor.get_statement(statement_id)
-        if not record:
-            QMessageBox.warning(
-                self,
-                "Statement Not Found",
-                f"Could not find statement with ID: {statement_id}"
-            )
-            return
-
-        # Determine which file to open based on status
-        statements_dir = self.processor._get_statements_dir(record)
-
-        if record.status == ProcessingStatus.CLASSIFIED.value:
-            # Show classified transactions
-            transactions_file = statements_dir / f"{record.id}_classified.xlsx"
-        elif record.status == ProcessingStatus.EXTRACTED.value:
-            # Show raw extracted transactions
-            transactions_file = statements_dir / f"{record.id}_raw.xlsx"
-        else:
-            QMessageBox.warning(
-                self,
-                "No Transactions Available",
-                f"Transactions are not available for this statement.\n"
-                f"Status: {record.status}\n\n"
-                f"Please process the statement first."
-            )
-            return
-
-        if not transactions_file.exists():
-            QMessageBox.warning(
-                self,
-                "File Not Found",
-                f"Transactions file not found:\n{transactions_file}\n\n"
-                f"The file may have been deleted or moved."
-            )
-            return
-
-        # Prepare statement info for dialog
-        statement_info = {
-            'account_name': record.account_name,
-            'owner': record.account_owner or "Shared",
-            'filename': record.filename,
-            'period_start': record.statement_period_start,
-            'period_end': record.statement_period_end
-        }
-
-        # Open viewer dialog
-        try:
-            dialog = TransactionViewerDialog(transactions_file, statement_info, self)
-            dialog.exec_()
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Opening Transactions",
-                f"Failed to open transaction viewer:\n{str(e)}"
-            )
