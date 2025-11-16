@@ -361,8 +361,7 @@ When modifying calculations, always run tests to verify accuracy.
 
 - `pandas`: Excel file reading/writing
 - `openpyxl`: Excel file engine for pandas
-- `PyPDF2`: Bank statement PDF parsing
-- `pycryptodome`: PDF decryption support
+- `pdfplumber`: Advanced PDF parsing for bank statements (better text extraction than PyPDF2)
 - `PyYAML`: YAML template file parsing for bank statement templates
 
 Install with: `pip install -r requirements.txt`

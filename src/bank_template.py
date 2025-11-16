@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import yaml
-from PyPDF2 import PdfReader
+import pdfplumber
 
 
 @dataclass
@@ -178,13 +178,15 @@ class TemplateRegistry:
             BankTemplate if a match is found, None otherwise
         """
         try:
-            with open(pdf_path, 'rb') as f:
-                reader = PdfReader(f)
-                if len(reader.pages) == 0:
+            with pdfplumber.open(pdf_path) as pdf:
+                if len(pdf.pages) == 0:
                     print("⚠️  PDF has no pages")
                     return None
 
-                first_page_text = reader.pages[0].extract_text()
+                first_page_text = pdf.pages[0].extract_text()
+                if not first_page_text:
+                    print("⚠️  Could not extract text from first page")
+                    return None
         except Exception as e:
             print(f"⚠️  Error reading PDF: {e}")
             return None
