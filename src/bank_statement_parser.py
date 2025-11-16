@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
-from PyPDF2 import PdfReader
+import pdfplumber
 
 from bank_template import BankTemplate, TemplateRegistry
 
@@ -128,13 +128,14 @@ class BankStatementParser:
         return self.summary, self.transactions
 
     def _extract_pdf_text(self) -> str:
-        """Extract all text from PDF."""
+        """Extract all text from PDF using pdfplumber."""
         try:
-            with open(self.pdf_path, 'rb') as file:
-                reader = PdfReader(file)
-                text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
+            text = ""
+            with pdfplumber.open(self.pdf_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
             return text
         except Exception as e:
             raise RuntimeError(f"Error reading PDF: {e}")
