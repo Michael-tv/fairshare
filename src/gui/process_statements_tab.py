@@ -253,6 +253,11 @@ class ProcessStatementsTab(QWidget):
                 learned_rules_path=self.config.working_dir / "learned_classifications.json"
             )
 
+            # Reload state from disk to get latest changes from other tabs
+            self.processor.reload_state()
+            # Then sync with filesystem to catch any extracted→classified updates
+            self.processor.sync_state_with_filesystem()
+
             # Populate account filter
             self._populate_account_filter()
 
@@ -643,7 +648,12 @@ class ProcessStatementsTab(QWidget):
             self.status_label.setText(f"Error: {str(e)}")
             QMessageBox.critical(self, "Parse Error", error_msg)
 
+        # Reload state from disk before refreshing to show current status
+        if self.processor:
+            self.processor.reload_state()
+            self.processor.sync_state_with_filesystem()
         self.refresh_table()
+        self._notify_view_transactions_tab()
 
     def classify_statement(self, statement_id: str, force: bool = False):
         """Classify transactions only."""
@@ -671,7 +681,12 @@ class ProcessStatementsTab(QWidget):
             self.status_label.setText(f"Error: {str(e)}")
             QMessageBox.critical(self, "Classification Error", error_msg)
 
+        # Reload state from disk before refreshing to show current status
+        if self.processor:
+            self.processor.reload_state()
+            self.processor.sync_state_with_filesystem()
         self.refresh_table()
+        self._notify_view_transactions_tab()
 
     def process_full_statement(self, statement_id: str, force: bool = False):
         """Process a single statement (full pipeline: extract + classify)."""
@@ -716,7 +731,25 @@ class ProcessStatementsTab(QWidget):
             self.status_label.setText(f"Error: {message}")
             QMessageBox.warning(self, "Processing Error", message)
 
+        # Reload state from disk before refreshing to show current status
+        if self.processor:
+            self.processor.reload_state()
+            self.processor.sync_state_with_filesystem()
         self.refresh_table()
+
+        # Notify View Transactions tab that state has changed
+        self._notify_view_transactions_tab()
+
+    def _notify_view_transactions_tab(self):
+        """Notify View Transactions tab to reload state after processing changes."""
+        if hasattr(self, 'main_window') and self.main_window:
+            if hasattr(self.main_window, 'view_transactions_tab'):
+                view_tab = self.main_window.view_transactions_tab
+                if hasattr(view_tab, 'transactions_widget'):
+                    trans_widget = view_tab.transactions_widget
+                    if hasattr(trans_widget, 'processor') and trans_widget.processor:
+                        trans_widget.processor.reload_state()
+                        trans_widget.processor.sync_state_with_filesystem()
 
     def reprocess_all(self):
         """Reprocess all statements."""

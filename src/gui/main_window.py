@@ -17,8 +17,6 @@ from gui.view_transactions_tab import ViewTransactionsTab
 from gui.monthly_transactions_tab import MonthlyTransactionsTab
 from gui.classifier_tab import TransactionClassifierTab
 from gui.calculate_tab import CalculateTab
-from gui.template_validation_tab import TemplateValidationTab
-from gui.parser_diagnostics_tab import ParserDiagnosticsTab
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +35,7 @@ class MainWindow(QMainWindow):
 
         # Create tab widget
         self.tabs = QTabWidget()
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         layout.addWidget(self.tabs)
 
         # Initialize tabs
@@ -46,8 +45,6 @@ class MainWindow(QMainWindow):
         self.monthly_transactions_tab = MonthlyTransactionsTab(self)
         self.classifier_tab = TransactionClassifierTab(self)
         self.calculate_tab = CalculateTab(self)
-        self.template_validation_tab = TemplateValidationTab(self)
-        self.parser_diagnostics_tab = ParserDiagnosticsTab(self)
 
         # Add tabs to widget in order
         self.tabs.addTab(self.settings_tab, "Settings")
@@ -56,16 +53,32 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.monthly_transactions_tab, "Monthly Transactions")
         self.tabs.addTab(self.classifier_tab, "Transaction Classifier")
         self.tabs.addTab(self.calculate_tab, "Calculate")
-        self.tabs.addTab(self.template_validation_tab, "Template Validation")
-        self.tabs.addTab(self.parser_diagnostics_tab, "Parser Diagnostics")
 
         # Set initial focus on settings tab
         self.tabs.setCurrentIndex(0)
 
     def on_tab_changed(self, index):
-        """Handle tab change events."""
-        # Settings tab doesn't need refresh (it manages its own state)
-        pass
+        """Handle tab change events - reload state to ensure tabs show current data."""
+        tab_widget = self.tabs.widget(index)
+
+        # Reload state when switching to Process Statements tab
+        if tab_widget == self.process_statements_tab:
+            if hasattr(tab_widget, 'processor') and tab_widget.processor:
+                tab_widget.processor.reload_state()
+                tab_widget.processor.sync_state_with_filesystem()
+                if hasattr(tab_widget, 'refresh_table'):
+                    tab_widget.refresh_table()
+
+        # Reload state when switching to View Transactions tab
+        elif tab_widget == self.view_transactions_tab:
+            # The ViewTransactionsTab has subtabs, so we need to access the transactions widget
+            if hasattr(tab_widget, 'transactions_widget'):
+                trans_widget = tab_widget.transactions_widget
+                if hasattr(trans_widget, 'processor') and trans_widget.processor:
+                    trans_widget.processor.reload_state()
+                    trans_widget.processor.sync_state_with_filesystem()
+                    if hasattr(trans_widget, 'refresh_all'):
+                        trans_widget.refresh_all()
 
     def refresh_all_tabs(self):
         """Refresh all tabs after data changes."""

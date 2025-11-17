@@ -10,7 +10,7 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QPushButton,
     QLabel, QTableWidget, QTableWidgetItem, QHeaderView,
-    QComboBox, QMessageBox, QSplitter, QAbstractItemView
+    QComboBox, QMessageBox, QSplitter, QAbstractItemView, QTabWidget
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QBrush
@@ -21,10 +21,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_manager import ConfigManager, Config
 from statement_processor import StatementProcessor, StatementRecord, ProcessingStatus
+from gui.template_validation_tab import TemplateValidationTab
+from gui.parser_diagnostics_tab import ParserDiagnosticsTab
 
 
-class ViewTransactionsTab(QWidget):
-    """Tab for viewing processed/classified transactions."""
+class TransactionsViewWidget(QWidget):
+    """Widget for viewing processed/classified transactions by statement."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -109,16 +111,17 @@ class ViewTransactionsTab(QWidget):
 
         # Statements table
         self.statements_table = QTableWidget()
-        self.statements_table.setColumnCount(5)
+        self.statements_table.setColumnCount(6)
         self.statements_table.setHorizontalHeaderLabels([
-            "Account", "Owner", "Date", "Status", "Transactions"
+            "Account", "Owner", "Statement File", "Date", "Status", "Transactions"
         ])
         self.statements_table.horizontalHeader().setStretchLastSection(False)
-        self.statements_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.statements_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.statements_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.statements_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.statements_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.statements_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.statements_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.statements_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.statements_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.statements_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.statements_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -168,8 +171,9 @@ class ViewTransactionsTab(QWidget):
             self.config = ConfigManager.load()
             self.processor = StatementProcessor(self.config)
 
-            # Sync state with filesystem to update any 'extracted' statements
-            # that actually have classified files
+            # Reload state from disk to get latest changes from other tabs
+            self.processor.reload_state()
+            # Then sync with filesystem to catch any extracted→classified updates
             self.processor.sync_state_with_filesystem()
 
             # Populate user filter
@@ -298,6 +302,9 @@ class ViewTransactionsTab(QWidget):
         # Owner
         self.statements_table.setItem(row, 1, QTableWidgetItem(record.account_owner or ""))
 
+        # Statement File
+        self.statements_table.setItem(row, 2, QTableWidgetItem(record.filename))
+
         # Date (use period end)
         date_str = ""
         if record.statement_period_end:
@@ -306,7 +313,7 @@ class ViewTransactionsTab(QWidget):
                 date_str = end.strftime("%Y-%m-%d")
             except:
                 date_str = "Unknown"
-        self.statements_table.setItem(row, 2, QTableWidgetItem(date_str))
+        self.statements_table.setItem(row, 3, QTableWidgetItem(date_str))
 
         # Status
         status_item = QTableWidgetItem(record.status.upper())
@@ -317,12 +324,12 @@ class ViewTransactionsTab(QWidget):
             status_item.setBackground(QBrush(QColor(255, 255, 200)))  # Light yellow for extracted
         elif record.status == ProcessingStatus.ERROR.value:
             status_item.setBackground(QBrush(QColor(255, 200, 200)))  # Light red for error
-        self.statements_table.setItem(row, 3, status_item)
+        self.statements_table.setItem(row, 4, status_item)
 
         # Transaction count
         count_item = QTableWidgetItem(str(record.transaction_count))
         count_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.statements_table.setItem(row, 4, count_item)
+        self.statements_table.setItem(row, 5, count_item)
 
         # Store statement ID in the row
         self.statements_table.item(row, 0).setData(Qt.UserRole, record.id)
@@ -439,15 +446,16 @@ class ViewTransactionsTab(QWidget):
 
         # Amount
         amount = row_data.get('Amount', 0)
+        is_credit = row_data.get('Is Credit', False)
         amount_str = f"R {amount:,.2f}" if pd.notna(amount) else ""
         amount_item = QTableWidgetItem(amount_str)
         amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # Color based on amount
+        # Color based on Is Credit flag - vibrant colors for better visibility
         if pd.notna(amount):
-            if amount < 0:
-                amount_item.setForeground(QBrush(QColor(200, 0, 0)))  # Red for expenses
-            else:
-                amount_item.setForeground(QBrush(QColor(0, 128, 0)))  # Green for income
+            if is_credit:  # Money IN
+                amount_item.setForeground(QBrush(QColor(34, 139, 34)))  # Forest green for money IN
+            else:  # Money OUT
+                amount_item.setForeground(QBrush(QColor(220, 20, 60)))  # Crimson red for money OUT
         self.transactions_table.setItem(row, 2, amount_item)
 
         # Category
@@ -467,3 +475,31 @@ class ViewTransactionsTab(QWidget):
         # Assigned User
         assigned_user = str(row_data.get('Assigned User', ''))
         self.transactions_table.setItem(row, 5, QTableWidgetItem(assigned_user))
+
+
+class ViewTransactionsTab(QWidget):
+    """Parent tab with subtabs for viewing transactions, template validation, and parser diagnostics."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize the user interface with subtabs."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create tab widget for subtabs
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # Add subtabs
+        self.transactions_widget = TransactionsViewWidget(self.main_window)
+        self.tabs.addTab(self.transactions_widget, "Transactions")
+
+        self.template_validation_widget = TemplateValidationTab(self.main_window)
+        self.tabs.addTab(self.template_validation_widget, "Template Validation")
+
+        self.parser_diagnostics_widget = ParserDiagnosticsTab(self.main_window)
+        self.tabs.addTab(self.parser_diagnostics_widget, "Parser Diagnostics")

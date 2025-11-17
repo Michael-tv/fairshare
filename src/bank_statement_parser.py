@@ -8,6 +8,7 @@ without code changes.
 
 import re
 import decimal
+import logging
 from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,11 @@ from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 import pdfplumber
 
-from bank_template import BankTemplate, TemplateRegistry
+from src.bank_template import BankTemplate, TemplateRegistry
+from src.parser_diagnostics import get_diagnostics_collector, LineParseAttempt
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,6 +56,8 @@ class BankStatementSummary:
     interest_fees: Decimal
     statement_number: str
     account_number: str
+    credit_count: int  # Number of credit transactions from statement
+    debit_count: int   # Number of debit transactions from statement
 
 
 class BankStatementParser:
@@ -121,11 +128,42 @@ class BankStatementParser:
         Returns:
             Tuple of (summary, transactions)
         """
-        text = self._extract_pdf_text()
-        self.summary = self._parse_summary(text)
-        self.transactions = self._parse_transactions(text)
+        # Start diagnostics session
+        collector = get_diagnostics_collector()
+        template_name = f"{self.template.bank_name} - {self.template.account_type}"
+        collector.start_session(str(self.pdf_path), template_name)
 
-        return self.summary, self.transactions
+        logger.info(f"Starting parse of {self.pdf_path.name}")
+        logger.info(f"Using template: {template_name}")
+
+        try:
+            text = self._extract_pdf_text()
+            logger.info(f"Extracted text from PDF ({len(text)} characters)")
+
+            self.summary = self._parse_summary(text)
+            logger.info(f"Parsed summary - Statement date: {self.summary.statement_date.strftime('%Y-%m-%d')}")
+
+            self.transactions = self._parse_transactions(text)
+            logger.info(f"Parsed {len(self.transactions)} transactions")
+
+            # Calculate totals for validation
+            total_credits = sum(t.amount for t in self.transactions if t.is_credit)
+            total_debits = sum(t.amount for t in self.transactions if not t.is_credit)
+
+            logger.info(f"Total credits: R{total_credits:,.2f}, Total debits: R{total_debits:,.2f}")
+
+            # Validate balance if we have summary info
+            if self.summary and (self.summary.opening_balance or self.summary.closing_balance):
+                self._validate_balance(total_credits, total_debits)
+
+            return self.summary, self.transactions
+
+        except Exception as e:
+            logger.error(f"Error parsing statement: {e}", exc_info=True)
+            raise
+        finally:
+            # End diagnostics session
+            collector.end_session()
 
     def _extract_pdf_text(self) -> str:
         """Extract all text from PDF using pdfplumber."""
@@ -190,7 +228,9 @@ class BankStatementParser:
             total_payments=extract_field('total_payments', Decimal) or Decimal(0),
             interest_fees=extract_field('interest_fees', Decimal) or Decimal(0),
             statement_number=extract_field('statement_number') or "",
-            account_number=extract_field('account_number') or ""
+            account_number=extract_field('account_number') or "",
+            credit_count=extract_field('credit_count', int) or 0,
+            debit_count=extract_field('debit_count', int) or 0
         )
 
     def _parse_date_string(self, date_str: str, config: Dict[str, Any]) -> datetime:
@@ -213,20 +253,24 @@ class BankStatementParser:
 
     def _parse_transactions(self, text: str) -> List[BankTransaction]:
         """Parse transactions using template patterns."""
+        collector = get_diagnostics_collector()
+        session = collector.current_session
+
         parsing_cfg = self.template.config.get('parsing', {})
         sections_cfg = self.template.config.get('sections', {})
 
         # Get transaction pattern
         transaction_pattern = parsing_cfg.get('transaction_pattern')
         if not transaction_pattern:
-            print("⚠️  No transaction_pattern defined in template")
+            logger.error("No transaction_pattern defined in template")
             return []
 
         # Compile pattern
         try:
             pattern = re.compile(transaction_pattern, re.IGNORECASE)
+            logger.debug(f"Compiled transaction pattern: {transaction_pattern[:100]}...")
         except re.error as e:
-            print(f"⚠️  Invalid transaction pattern: {e}")
+            logger.error(f"Invalid transaction pattern: {e}")
             return []
 
         # Section markers
@@ -234,29 +278,70 @@ class BankStatementParser:
         end_markers = sections_cfg.get('end_markers', [])
         skip_lines = sections_cfg.get('skip_lines', [])
 
+        logger.info(f"Section markers - Start: {start_markers}, End: {end_markers}")
+
         lines = text.split('\n')
         in_section = not start_markers  # If no start markers, parse all lines
         transactions = []
         current_card = None
 
+        # Statistics counters
+        line_number = 0
+        lines_in_section = 0
+        lines_matched = 0
+        lines_skipped = 0
+        transactions_created = 0
+        transactions_failed = 0
+        credits_count = 0
+        debits_count = 0
+        total_credits = Decimal('0')
+        total_debits = Decimal('0')
+        skip_reasons = {}
+
         for line in lines:
+            line_number += 1
             line_stripped = line.strip()
+
+            # Skip empty lines
+            if not line_stripped:
+                continue
 
             # Check for section boundaries
             if start_markers and any(marker in line for marker in start_markers):
                 in_section = True
+                logger.debug(f"Line {line_number}: Entering transaction section")
                 continue
 
             if end_markers and any(marker in line for marker in end_markers):
                 in_section = False
+                logger.debug(f"Line {line_number}: Exiting transaction section")
                 continue
 
             # Skip unwanted lines
-            if any(skip in line for skip in skip_lines):
+            skip_reason = None
+            for skip_pattern in skip_lines:
+                if skip_pattern in line:
+                    skip_reason = f"Matches skip pattern: {skip_pattern}"
+                    lines_skipped += 1
+                    skip_reasons[skip_reason] = skip_reasons.get(skip_reason, 0) + 1
+                    break
+
+            if skip_reason:
+                if session:
+                    attempt = LineParseAttempt(
+                        line_number=line_number,
+                        line_text=line_stripped[:100],
+                        matched=False,
+                        transaction_created=False,
+                        skip_reason=skip_reason
+                    )
+                    session.line_attempts.append(attempt)
                 continue
 
             if not in_section:
                 continue
+
+            lines_in_section += 1
 
             # Track card number context
             card_cfg = parsing_cfg.get('card_number', {})
@@ -267,12 +352,85 @@ class BankStatementParser:
                     if card_match:
                         groups = card_match.groupdict()
                         current_card = groups.get('card', card_match.group(1))
+                        logger.debug(f"Line {line_number}: Found card context: {current_card}")
                         continue
 
-            # Try to parse transaction
-            transaction = self._parse_transaction_line(line_stripped, pattern, current_card)
-            if transaction:
-                transactions.append(transaction)
+            # Try to match transaction pattern
+            match = pattern.search(line_stripped)
+
+            if match:
+                lines_matched += 1
+
+                # Try to parse transaction
+                transaction = self._parse_transaction_line(line_stripped, pattern, current_card)
+
+                if transaction:
+                    transactions.append(transaction)
+                    transactions_created += 1
+
+                    if transaction.is_credit:
+                        credits_count += 1
+                        total_credits += transaction.amount
+                    else:
+                        debits_count += 1
+                        total_debits += transaction.amount
+
+                    logger.debug(f"Line {line_number}: Parsed transaction - {transaction.description[:30]} R{transaction.amount}")
+
+                    if session:
+                        attempt = LineParseAttempt(
+                            line_number=line_number,
+                            line_text=line_stripped[:100],
+                            matched=True,
+                            transaction_created=True
+                        )
+                        session.line_attempts.append(attempt)
+                else:
+                    transactions_failed += 1
+                    error_msg = "Matched pattern but failed validation"
+                    logger.warning(f"Line {line_number}: {error_msg} - {line_stripped[:50]}")
+
+                    if session:
+                        attempt = LineParseAttempt(
+                            line_number=line_number,
+                            line_text=line_stripped[:100],
+                            matched=True,
+                            transaction_created=False,
+                            error=error_msg
+                        )
+                        session.line_attempts.append(attempt)
+            else:
+                # Line didn't match pattern
+                if session:
+                    attempt = LineParseAttempt(
+                        line_number=line_number,
+                        line_text=line_stripped[:100],
+                        matched=False,
+                        transaction_created=False
+                    )
+                    session.line_attempts.append(attempt)
+
+        # Update statistics
+        if session:
+            stats = session.statistics
+            stats.total_lines = line_number
+            stats.lines_in_section = lines_in_section
+            stats.lines_matched_pattern = lines_matched
+            stats.lines_skipped = lines_skipped
+            stats.transactions_created = transactions_created
+            stats.transactions_failed = transactions_failed
+            stats.credits_count = credits_count
+            stats.debits_count = debits_count
+            stats.total_credits = total_credits
+            stats.total_debits = total_debits
+            stats.skip_reasons = skip_reasons
+
+        logger.info(f"Transaction parsing complete:")
+        logger.info(f"  Total lines: {line_number}")
+        logger.info(f"  Lines in section: {lines_in_section}")
+        logger.info(f"  Lines matched: {lines_matched}")
+        logger.info(f"  Transactions created: {transactions_created}")
+        logger.info(f"  Transactions failed: {transactions_failed}")
 
         # Sort by date
         transactions.sort(key=lambda t: t.date)
@@ -518,6 +676,70 @@ class BankStatementParser:
             return digits[-extract_last:] if len(digits) >= extract_last else digits
 
         return None
+
+    def _validate_balance(self, total_credits: Decimal, total_debits: Decimal):
+        """Validate parsed transactions against statement balances."""
+        collector = get_diagnostics_collector()
+        if not collector.current_session or not self.summary:
+            return
+
+        opening = self.summary.opening_balance
+        closing = self.summary.closing_balance
+
+        # Calculate expected closing balance
+        calculated_closing = opening + total_credits - total_debits
+        difference = abs(closing - calculated_closing)
+
+        # Store validation results
+        validation = {
+            'valid': difference < Decimal('0.01'),  # Allow 1 cent rounding
+            'opening_balance': opening,
+            'closing_balance': closing,
+            'calculated_balance': calculated_closing,
+            'difference': difference,
+            'warnings': []
+        }
+
+        if difference >= Decimal('0.01'):
+            warning_msg = (
+                f"Balance mismatch: Expected R{calculated_closing:,.2f}, "
+                f"Statement shows R{closing:,.2f} (Difference: R{difference:,.2f})"
+            )
+            validation['warnings'].append(warning_msg)
+            logger.warning(warning_msg)
+        else:
+            logger.info(f"Balance validation passed (difference: R{difference:,.2f})")
+
+        # Validate transaction counts if available in statement
+        if self.summary.credit_count > 0 or self.summary.debit_count > 0:
+            parsed_credits = len([t for t in self.transactions if t.is_credit])
+            parsed_debits = len([t for t in self.transactions if not t.is_credit])
+
+            validation['credit_count_expected'] = self.summary.credit_count
+            validation['credit_count_parsed'] = parsed_credits
+            validation['debit_count_expected'] = self.summary.debit_count
+            validation['debit_count_parsed'] = parsed_debits
+
+            if self.summary.credit_count > 0 and parsed_credits != self.summary.credit_count:
+                warning_msg = (
+                    f"Credit transaction count mismatch: Parsed {parsed_credits}, "
+                    f"Statement shows {self.summary.credit_count}"
+                )
+                validation['warnings'].append(warning_msg)
+                logger.warning(warning_msg)
+
+            if self.summary.debit_count > 0 and parsed_debits != self.summary.debit_count:
+                warning_msg = (
+                    f"Debit transaction count mismatch: Parsed {parsed_debits}, "
+                    f"Statement shows {self.summary.debit_count}"
+                )
+                validation['warnings'].append(warning_msg)
+                logger.warning(warning_msg)
+
+            if parsed_credits == self.summary.credit_count and parsed_debits == self.summary.debit_count:
+                logger.info(f"Transaction count validation passed: {parsed_credits} credits, {parsed_debits} debits")
+
+        collector.current_session.statistics.balance_validation = validation
 
     def get_expenses_only(self) -> List[BankTransaction]:
         """Get only expense transactions (exclude payments/credits)."""

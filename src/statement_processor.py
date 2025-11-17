@@ -130,6 +130,15 @@ class StatementProcessor:
         with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
+    def reload_state(self):
+        """
+        Reload processing state from disk, replacing in-memory state.
+
+        Use this to get the latest state that may have been updated by
+        another tab or process.
+        """
+        self.statements = self._load_state()
+
     def sync_state_with_filesystem(self):
         """
         Sync state file with actual files on disk.
@@ -512,6 +521,11 @@ class StatementProcessor:
 
             raw_excel_path = statements_dir / f"{record.id}_raw.xlsx"
             self._save_raw_transactions(transactions, summary, raw_excel_path)
+
+            # Delete classified file if it exists (stale after re-extraction)
+            classified_file = statements_dir / f"{record.id}_classified.xlsx"
+            if classified_file.exists():
+                classified_file.unlink()
 
             record.status = ProcessingStatus.EXTRACTED.value
             self._save_state()
