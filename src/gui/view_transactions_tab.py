@@ -10,7 +10,8 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QPushButton,
     QLabel, QTableWidget, QTableWidgetItem, QHeaderView,
-    QComboBox, QMessageBox, QSplitter, QAbstractItemView, QTabWidget
+    QComboBox, QMessageBox, QSplitter, QAbstractItemView, QTabWidget,
+    QCheckBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QBrush
@@ -23,6 +24,8 @@ from config_manager import ConfigManager, Config
 from statement_processor import StatementProcessor, StatementRecord, ProcessingStatus
 from gui.template_validation_tab import TemplateValidationTab
 from gui.parser_diagnostics_tab import ParserDiagnosticsTab
+from learned_classifier import LearnedClassifier
+from decimal import Decimal
 
 
 class TransactionsViewWidget(QWidget):
@@ -145,14 +148,31 @@ class TransactionsViewWidget(QWidget):
 
         # Transactions table
         self.transactions_table = QTableWidget()
-        self.transactions_table.setColumnCount(6)
+        self.transactions_table.setColumnCount(8)
         self.transactions_table.setHorizontalHeaderLabels([
-            "Date", "Description", "Amount", "Category", "Type", "Assigned User"
+            "Learn", "Date", "Description", "Amount", "Category", "Type", "Assigned User", "Modified"
         ])
         self.transactions_table.horizontalHeader().setStretchLastSection(False)
-        self.transactions_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.transactions_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Learn checkbox
+        self.transactions_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)  # Description
         self.transactions_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         right_layout.addWidget(self.transactions_table)
+
+        # Add action buttons below the transactions table
+        button_layout = QHBoxLayout()
+
+        self.save_changes_btn = QPushButton("Save Changes")
+        self.save_changes_btn.clicked.connect(self.save_transaction_changes)
+        self.save_changes_btn.setEnabled(False)
+        button_layout.addWidget(self.save_changes_btn)
+
+        self.save_learned_btn = QPushButton("Save Selected as Learned Rules")
+        self.save_learned_btn.clicked.connect(self.save_learned_rules)
+        self.save_learned_btn.setEnabled(False)
+        button_layout.addWidget(self.save_learned_btn)
+
+        button_layout.addStretch()
+        right_layout.addLayout(button_layout)
 
         splitter.addWidget(right_panel)
 
@@ -430,7 +450,13 @@ class TransactionsViewWidget(QWidget):
         row = self.transactions_table.rowCount()
         self.transactions_table.insertRow(row)
 
-        # Date
+        # Column 0: Learn checkbox
+        checkbox = QCheckBox()
+        checkbox.setStyleSheet("margin-left:50%; margin-right:50%;")
+        checkbox.stateChanged.connect(self.on_learn_checkbox_changed)
+        self.transactions_table.setCellWidget(row, 0, checkbox)
+
+        # Column 1: Date
         date_str = ""
         if pd.notna(row_data.get('Date')):
             try:
@@ -438,43 +464,273 @@ class TransactionsViewWidget(QWidget):
                 date_str = date_obj.strftime("%Y-%m-%d")
             except:
                 date_str = str(row_data.get('Date', ''))
-        self.transactions_table.setItem(row, 0, QTableWidgetItem(date_str))
+        self.transactions_table.setItem(row, 1, QTableWidgetItem(date_str))
 
-        # Description
+        # Column 2: Description
         desc = str(row_data.get('Description', ''))
-        self.transactions_table.setItem(row, 1, QTableWidgetItem(desc))
+        self.transactions_table.setItem(row, 2, QTableWidgetItem(desc))
 
-        # Amount
+        # Column 3: Amount
         amount = row_data.get('Amount', 0)
         is_credit = row_data.get('Is Credit', False)
         amount_str = f"R {amount:,.2f}" if pd.notna(amount) else ""
         amount_item = QTableWidgetItem(amount_str)
         amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Store raw amount for later use
+        amount_item.setData(Qt.UserRole, amount)
         # Color based on Is Credit flag - vibrant colors for better visibility
         if pd.notna(amount):
             if is_credit:  # Money IN
                 amount_item.setForeground(QBrush(QColor(34, 139, 34)))  # Forest green for money IN
             else:  # Money OUT
                 amount_item.setForeground(QBrush(QColor(220, 20, 60)))  # Crimson red for money OUT
-        self.transactions_table.setItem(row, 2, amount_item)
+        self.transactions_table.setItem(row, 3, amount_item)
 
-        # Category
+        # Column 4: Category
         category = str(row_data.get('Category', ''))
-        self.transactions_table.setItem(row, 3, QTableWidgetItem(category))
+        self.transactions_table.setItem(row, 4, QTableWidgetItem(category))
 
-        # Type (HOUSEHOLD/INDIVIDUAL)
+        # Column 5: Type (HOUSEHOLD/INDIVIDUAL) - editable dropdown
         trans_type = str(row_data.get('Type', ''))
-        type_item = QTableWidgetItem(trans_type)
+        type_combo = QComboBox()
+        type_combo.addItems(["HOUSEHOLD", "INDIVIDUAL"])
+        type_combo.setCurrentText(trans_type)
+        # Store original value
+        type_combo.setProperty("original_value", trans_type)
+        type_combo.currentTextChanged.connect(self.on_type_changed)
         # Color based on type
         if trans_type == "HOUSEHOLD":
-            type_item.setBackground(QBrush(QColor(173, 216, 230)))  # Light blue
+            type_combo.setStyleSheet("background-color: #ADD8E6;")  # Light blue
         elif trans_type == "INDIVIDUAL":
-            type_item.setBackground(QBrush(QColor(255, 255, 200)))  # Light yellow
-        self.transactions_table.setItem(row, 4, type_item)
+            type_combo.setStyleSheet("background-color: #FFFFE0;")  # Light yellow
+        self.transactions_table.setCellWidget(row, 5, type_combo)
 
-        # Assigned User
+        # Column 6: Assigned User
         assigned_user = str(row_data.get('Assigned User', ''))
-        self.transactions_table.setItem(row, 5, QTableWidgetItem(assigned_user))
+        self.transactions_table.setItem(row, 6, QTableWidgetItem(assigned_user))
+
+        # Column 7: Modified flag (initially empty)
+        modified_item = QTableWidgetItem("")
+        modified_item.setTextAlignment(Qt.AlignCenter)
+        self.transactions_table.setItem(row, 7, modified_item)
+
+    def on_type_changed(self, new_value):
+        """Handle type dropdown change."""
+        sender = self.sender()
+        if sender and sender.property("original_value") != new_value:
+            # Mark row as modified
+            row = self._get_row_for_widget(sender)
+            if row is not None:
+                modified_item = self.transactions_table.item(row, 7)
+                if modified_item:
+                    modified_item.setText("✓")
+                    modified_item.setForeground(QBrush(QColor(0, 128, 0)))  # Green
+                # Update color based on new type
+                if new_value == "HOUSEHOLD":
+                    sender.setStyleSheet("background-color: #ADD8E6;")  # Light blue
+                else:
+                    sender.setStyleSheet("background-color: #FFFFE0;")  # Light yellow
+                self.save_changes_btn.setEnabled(True)
+
+    def on_learn_checkbox_changed(self):
+        """Handle learn checkbox state change."""
+        # Enable/disable the save learned rules button based on whether any checkboxes are checked
+        has_selection = False
+        for row in range(self.transactions_table.rowCount()):
+            checkbox = self.transactions_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                has_selection = True
+                break
+        self.save_learned_btn.setEnabled(has_selection)
+
+    def _get_row_for_widget(self, widget):
+        """Get the row number for a given widget."""
+        for row in range(self.transactions_table.rowCount()):
+            if self.transactions_table.cellWidget(row, 5) == widget:
+                return row
+        return None
+
+    def _get_account_id(self, statement: StatementRecord) -> str:
+        """Generate unique account ID from statement record."""
+        owner = statement.account_owner or "Shared"
+        return f"{owner}_{statement.account_name}"
+
+    def save_transaction_changes(self):
+        """Save transaction changes back to the Excel file."""
+        try:
+            if not self.current_statement_id:
+                QMessageBox.warning(self, "Error", "No statement selected")
+                return
+
+            # Get statement record
+            statement = self.processor.get_statement(self.current_statement_id)
+            if not statement:
+                QMessageBox.warning(self, "Error", "Statement not found")
+                return
+
+            # Find the account config
+            account = None
+            for user in self.config.users:
+                for acc in user.accounts:
+                    if acc.name == statement.account_name:
+                        account = acc
+                        break
+                if account:
+                    break
+
+            if not account:
+                for acc in self.config.shared_accounts:
+                    if acc.name == statement.account_name:
+                        account = acc
+                        break
+
+            if not account:
+                QMessageBox.warning(self, "Error", "Account configuration not found")
+                return
+
+            # Determine file path
+            statements_dir = self.config.working_dir / account.processed_folder / "statements"
+            if statement.status == ProcessingStatus.CLASSIFIED.value:
+                transactions_file = statements_dir / f"{self.current_statement_id}_classified.xlsx"
+            else:
+                transactions_file = statements_dir / f"{self.current_statement_id}_raw.xlsx"
+
+            if not transactions_file.exists():
+                QMessageBox.warning(self, "Error", f"Transactions file not found: {transactions_file}")
+                return
+
+            # Load transactions
+            df = pd.read_excel(transactions_file)
+
+            # Update modified rows
+            modified_count = 0
+            for row in range(self.transactions_table.rowCount()):
+                modified_item = self.transactions_table.item(row, 7)
+                if modified_item and modified_item.text() == "✓":
+                    # This row was modified
+                    type_combo = self.transactions_table.cellWidget(row, 5)
+                    if type_combo:
+                        new_type = type_combo.currentText()
+                        df.at[row, 'Type'] = new_type
+                        # Update original value
+                        type_combo.setProperty("original_value", new_type)
+                        # Clear modified flag
+                        modified_item.setText("")
+                        modified_count += 1
+
+            if modified_count == 0:
+                QMessageBox.information(self, "No Changes", "No changes to save")
+                return
+
+            # Save back to Excel
+            df.to_excel(transactions_file, index=False)
+
+            # Update statement processor state if needed
+            self.processor.sync_state_with_filesystem()
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Saved {modified_count} transaction changes to:\n{transactions_file.name}"
+            )
+
+            self.save_changes_btn.setEnabled(False)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Saving Changes",
+                f"Failed to save changes:\n\n{str(e)}"
+            )
+
+    def save_learned_rules(self):
+        """Save selected transactions as learned classification rules."""
+        try:
+            if not self.current_statement_id:
+                QMessageBox.warning(self, "Error", "No statement selected")
+                return
+
+            # Get statement record
+            statement = self.processor.get_statement(self.current_statement_id)
+            if not statement:
+                QMessageBox.warning(self, "Error", "Statement not found")
+                return
+
+            # Create account-specific LearnedClassifier
+            account_id = self._get_account_id(statement)
+            learned_rules_path = self.config.working_dir / "learned_rules.json"
+            classifier = LearnedClassifier(
+                learned_rules_path=learned_rules_path,
+                account_id=account_id
+            )
+
+            # Collect selected transactions
+            selected_count = 0
+            new_rules = 0
+            updated_rules = 0
+
+            for row in range(self.transactions_table.rowCount()):
+                checkbox = self.transactions_table.cellWidget(row, 0)
+                if checkbox and checkbox.isChecked():
+                    # Get transaction data
+                    description_item = self.transactions_table.item(row, 2)
+                    type_combo = self.transactions_table.cellWidget(row, 5)
+
+                    if description_item and type_combo:
+                        description = description_item.text().lower().strip()
+                        exp_type = type_combo.currentText()
+
+                        # Check if rule exists
+                        if description in classifier.rules:
+                            existing = classifier.rules[description]
+                            if existing['type'] != exp_type:
+                                # Update existing rule
+                                classifier.rules[description] = {
+                                    'type': exp_type,
+                                    'count': existing.get('count', 1) + 1,
+                                    'confidence': 100
+                                }
+                                updated_rules += 1
+                            else:
+                                # Same rule, just increment count
+                                existing['count'] = existing.get('count', 1) + 1
+                        else:
+                            # New rule
+                            classifier.rules[description] = {
+                                'type': exp_type,
+                                'count': 1,
+                                'confidence': 100
+                            }
+                            new_rules += 1
+
+                        selected_count += 1
+                        # Uncheck the checkbox
+                        checkbox.setChecked(False)
+
+            if selected_count == 0:
+                QMessageBox.information(self, "No Selection", "No transactions selected")
+                return
+
+            # Save rules
+            classifier.repo.save()
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Saved {selected_count} learned rules for account: {account_id}\n\n"
+                f"New rules: {new_rules}\n"
+                f"Updated rules: {updated_rules}\n"
+                f"Total rules for this account: {len(classifier.rules)}"
+            )
+
+            self.save_learned_btn.setEnabled(False)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Saving Learned Rules",
+                f"Failed to save learned rules:\n\n{str(e)}"
+            )
 
 
 class ViewTransactionsTab(QWidget):
