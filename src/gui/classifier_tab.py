@@ -27,8 +27,6 @@ class TransactionClassifierTab(QWidget):
         super().__init__(parent)
         self.main_window = parent
         self.config = None
-        self.classifier = None
-        self.learned_classifier = None
 
         self.init_ui()
         self.load_config()
@@ -184,6 +182,24 @@ class TransactionClassifierTab(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        # Info label
+        info = QLabel(
+            "Learned rules are created when you correct transaction classifications.\n"
+            "Rules are account-specific - each account learns from its own corrections.\n"
+            "Select an account below to view and manage its learned rules."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Account selection
+        account_layout = QHBoxLayout()
+        account_layout.addWidget(QLabel("Account:"))
+        self.learned_rules_account_combo = QComboBox()
+        self.learned_rules_account_combo.currentIndexChanged.connect(self.on_learned_rules_account_changed)
+        account_layout.addWidget(self.learned_rules_account_combo)
+        account_layout.addStretch()
+        layout.addLayout(account_layout)
+
         # Statistics group
         stats_group = QGroupBox("Statistics")
         stats_layout = QFormLayout()
@@ -200,18 +216,30 @@ class TransactionClassifierTab(QWidget):
         # Type distribution
         self.type_stats_text = QTextEdit()
         self.type_stats_text.setReadOnly(True)
-        self.type_stats_text.setMaximumHeight(100)
+        self.type_stats_text.setMaximumHeight(60)
         layout.addWidget(QLabel("Type Distribution:"))
         layout.addWidget(self.type_stats_text)
+
+        # Rules table
+        layout.addWidget(QLabel("Learned Rules:"))
+        self.learned_rules_table = QTableWidget()
+        self.learned_rules_table.setColumnCount(4)
+        self.learned_rules_table.setHorizontalHeaderLabels(["Description", "Type", "Count", "Actions"])
+        self.learned_rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        layout.addWidget(self.learned_rules_table)
 
         # Buttons
         button_layout = QHBoxLayout()
 
-        refresh_btn = QPushButton("Refresh Statistics")
-        refresh_btn.clicked.connect(self.refresh_learned_stats)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.load_learned_rules)
         button_layout.addWidget(refresh_btn)
 
-        export_btn = QPushButton("Export Rules to Excel")
+        add_btn = QPushButton("Add Rule...")
+        add_btn.clicked.connect(self.add_learned_rule_dialog)
+        button_layout.addWidget(add_btn)
+
+        export_btn = QPushButton("Export to Excel...")
         export_btn.clicked.connect(self.export_learned_rules)
         button_layout.addWidget(export_btn)
 
@@ -228,7 +256,7 @@ class TransactionClassifierTab(QWidget):
 
         apply_info = QLabel(
             "Apply learned rules to re-classify existing transaction files.\n"
-            "This will update auto_category and auto_type columns."
+            "This will update auto_type columns based on learned patterns."
         )
         apply_info.setWordWrap(True)
         apply_layout.addWidget(apply_info)
@@ -248,7 +276,6 @@ class TransactionClassifierTab(QWidget):
         apply_group.setLayout(apply_layout)
         layout.addWidget(apply_group)
 
-        layout.addStretch()
         return widget
 
     def create_one_time_mappings_tab(self):
@@ -431,31 +458,10 @@ class TransactionClassifierTab(QWidget):
     def reload_classifier(self):
         """Reload the classifier with current settings."""
         try:
-            # Get settings
-            use_learned = self.enable_learned_checkbox.isChecked()
-            rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
-            similarity_threshold = self.similarity_threshold_spin.value()
-
-            # Create classifier with default account_id for testing purposes
-            # Note: For account-specific operations, individual classifiers are created per account
-            self.classifier = TransactionClassifier(
-                account_id="default",  # Placeholder for general testing
-                learned_rules_path=rules_path,
-                use_learned=use_learned
-            )
-
-            # Create learned classifier separately for management operations
-            if rules_path:
-                self.learned_classifier = LearnedClassifier(
-                    rules_path,
-                    account_id="default",  # Placeholder for general management operations
-                    similarity_threshold=similarity_threshold
-                )
-
             # Refresh displays
             self.populate_account_combos()
             self.load_type_patterns()
-            self.refresh_learned_stats()
+            self.load_learned_rules()
             self.load_one_time_mappings()
             self.load_split_mappings()
 
@@ -481,6 +487,7 @@ class TransactionClassifierTab(QWidget):
         self.type_patterns_account_combo.clear()
         self.one_time_account_combo.clear()
         self.split_account_combo.clear()
+        self.learned_rules_account_combo.clear()
 
         # Add user accounts
         for user in self.config.users:
@@ -490,6 +497,7 @@ class TransactionClassifierTab(QWidget):
                 self.type_patterns_account_combo.addItem(display_name, account_id)
                 self.one_time_account_combo.addItem(display_name, account_id)
                 self.split_account_combo.addItem(display_name, account_id)
+                self.learned_rules_account_combo.addItem(display_name, account_id)
 
         # Add shared accounts
         for account in self.config.shared_accounts:
@@ -498,6 +506,7 @@ class TransactionClassifierTab(QWidget):
             self.type_patterns_account_combo.addItem(display_name, account_id)
             self.one_time_account_combo.addItem(display_name, account_id)
             self.split_account_combo.addItem(display_name, account_id)
+            self.learned_rules_account_combo.addItem(display_name, account_id)
 
     def on_type_patterns_account_changed(self):
         """Handle account selection change in type patterns tab."""
@@ -510,6 +519,10 @@ class TransactionClassifierTab(QWidget):
     def on_split_account_changed(self):
         """Handle account selection change in split mappings tab."""
         self.load_split_mappings()
+
+    def on_learned_rules_account_changed(self):
+        """Handle account selection change in learned rules tab."""
+        self.load_learned_rules()
 
     def load_type_patterns(self):
         """Load type patterns for the selected account from config."""
@@ -638,35 +651,128 @@ class TransactionClassifierTab(QWidget):
 
     def refresh_learned_stats(self):
         """Refresh learned rules statistics."""
-        if not self.learned_classifier:
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
             self.total_rules_label.setText("0")
             self.rules_file_label.setText("-")
             self.type_stats_text.clear()
             return
 
-        # Get statistics
-        stats = self.learned_classifier.get_statistics()
+        # Get or create account-specific learned classifier
+        rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+        if not rules_path:
+            return
 
-        # Update labels
-        self.total_rules_label.setText(str(stats['total_rules']))
-        self.rules_file_label.setText(str(self.learned_classifier.rules_path))
+        try:
+            classifier = LearnedClassifier(
+                rules_path,
+                account_id=account_id
+            )
 
-        # Type distribution
-        if stats['types']:
-            type_text = []
-            for typ, count in sorted(stats['types'].items()):
-                type_text.append(f"{typ}: {count}")
-            self.type_stats_text.setPlainText('\n'.join(type_text))
-        else:
-            self.type_stats_text.setPlainText("No rules learned yet")
+            # Get statistics
+            stats = classifier.get_statistics()
+
+            # Update labels
+            self.total_rules_label.setText(str(stats['total_rules']))
+            self.rules_file_label.setText(str(rules_path))
+
+            # Type distribution
+            if stats['types']:
+                type_text = []
+                for typ, count in sorted(stats['types'].items()):
+                    type_text.append(f"{typ}: {count}")
+                self.type_stats_text.setPlainText('\n'.join(type_text))
+            else:
+                self.type_stats_text.setPlainText("No rules learned yet for this account")
+
+        except Exception as e:
+            self.total_rules_label.setText("Error")
+            self.type_stats_text.setPlainText(f"Error loading rules: {e}")
+
+    def load_learned_rules(self):
+        """Load and display all learned rules for the selected account."""
+        # Clear table
+        self.learned_rules_table.setRowCount(0)
+
+        # Refresh stats first
+        self.refresh_learned_stats()
+
+        # Get account ID
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
+            return
+
+        # Get rules path
+        rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+        if not rules_path or not rules_path.exists():
+            return
+
+        try:
+            # Create classifier for this account
+            classifier = LearnedClassifier(
+                rules_path,
+                account_id=account_id
+            )
+
+            # Load all rules into table
+            for description, rule in sorted(classifier.rules.items()):
+                row = self.learned_rules_table.rowCount()
+                self.learned_rules_table.insertRow(row)
+
+                # Description
+                self.learned_rules_table.setItem(row, 0, QTableWidgetItem(description))
+
+                # Type
+                self.learned_rules_table.setItem(row, 1, QTableWidgetItem(rule['type']))
+
+                # Count
+                count_str = str(rule.get('count', 1))
+                self.learned_rules_table.setItem(row, 2, QTableWidgetItem(count_str))
+
+                # Actions - Edit and Delete buttons
+                actions_widget = QWidget()
+                actions_layout = QHBoxLayout(actions_widget)
+                actions_layout.setContentsMargins(2, 2, 2, 2)
+
+                edit_btn = QPushButton("Edit")
+                edit_btn.clicked.connect(
+                    lambda checked, desc=description: self.edit_learned_rule(desc)
+                )
+                actions_layout.addWidget(edit_btn)
+
+                delete_btn = QPushButton("Delete")
+                delete_btn.clicked.connect(
+                    lambda checked, desc=description: self.delete_learned_rule(desc)
+                )
+                actions_layout.addWidget(delete_btn)
+
+                self.learned_rules_table.setCellWidget(row, 3, actions_widget)
+
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Load Error",
+                f"Failed to load learned rules: {e}"
+            )
 
     def export_learned_rules(self):
         """Export learned rules to Excel."""
-        if not self.learned_classifier:
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
             QMessageBox.warning(
                 self,
-                "No Learned Classifier",
-                "Please configure and reload the classifier first."
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        # Get rules path
+        rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+        if not rules_path or not rules_path.exists():
+            QMessageBox.warning(
+                self,
+                "No Rules File",
+                "No learned rules file found."
             )
             return
 
@@ -674,17 +780,22 @@ class TransactionClassifierTab(QWidget):
         output_file, _ = QFileDialog.getSaveFileName(
             self,
             "Export Learned Rules",
-            "learned_rules_export.xlsx",
+            f"learned_rules_{account_id}.xlsx",
             "Excel Files (*.xlsx)"
         )
 
         if output_file:
             try:
-                self.learned_classifier.export_rules(Path(output_file))
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+                classifier.export_rules(Path(output_file))
                 QMessageBox.information(
                     self,
                     "Export Successful",
-                    f"Learned rules exported to:\n{output_file}"
+                    f"Learned rules for {account_id} exported to:\n{output_file}"
                 )
             except Exception as e:
                 QMessageBox.critical(
@@ -694,14 +805,20 @@ class TransactionClassifierTab(QWidget):
                 )
 
     def clear_learned_rules(self):
-        """Clear all learned rules."""
-        if not self.learned_classifier:
+        """Clear all learned rules for the selected account."""
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
+            QMessageBox.warning(
+                self,
+                "No Account Selected",
+                "Please select an account first."
+            )
             return
 
         reply = QMessageBox.question(
             self,
             "Clear All Rules",
-            "Are you sure you want to clear ALL learned rules?\n\n"
+            f"Are you sure you want to clear ALL learned rules for account:\n{account_id}\n\n"
             "This action cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -709,17 +826,28 @@ class TransactionClassifierTab(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                # Clear rules
-                self.learned_classifier.rules = {}
-                self.learned_classifier._save_rules()
+                # Get rules path
+                rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+                if not rules_path:
+                    return
 
-                # Refresh stats
-                self.refresh_learned_stats()
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+
+                # Clear rules
+                classifier.rules.clear()
+                classifier.repo.save()
+
+                # Refresh display
+                self.load_learned_rules()
 
                 QMessageBox.information(
                     self,
                     "Rules Cleared",
-                    "All learned rules have been cleared."
+                    f"All learned rules for {account_id} have been cleared."
                 )
             except Exception as e:
                 QMessageBox.critical(
@@ -728,13 +856,253 @@ class TransactionClassifierTab(QWidget):
                     f"Failed to clear rules: {e}"
                 )
 
-    def apply_rules_to_file(self):
-        """Apply learned rules to a single transaction file."""
-        if not self.learned_classifier:
+    def add_learned_rule_dialog(self):
+        """Show dialog to add a new learned rule."""
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
             QMessageBox.warning(
                 self,
-                "No Learned Classifier",
-                "Please configure and reload the classifier first."
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Learned Rule")
+        layout = QFormLayout(dialog)
+
+        # Input fields
+        description_edit = QLineEdit()
+        description_edit.setPlaceholderText("Transaction description (e.g., woolworths rondebosch)")
+        layout.addRow("Description:", description_edit)
+
+        type_combo = QComboBox()
+        type_combo.addItem("HOUSEHOLD", "HOUSEHOLD")
+        type_combo.addItem("INDIVIDUAL", "INDIVIDUAL")
+        layout.addRow("Type:", type_combo)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addRow(button_box)
+
+        if dialog.exec_() == QDialog.Accepted:
+            # Add the rule
+            description = description_edit.text().lower().strip()
+            exp_type = type_combo.currentData()
+
+            if not description:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Input",
+                    "Description is required."
+                )
+                return
+
+            try:
+                # Get rules path
+                rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+                if not rules_path:
+                    return
+
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+
+                # Add rule
+                classifier.rules[description] = {
+                    'type': exp_type,
+                    'count': 1,
+                    'confidence': 100
+                }
+
+                # Save
+                classifier.repo.save()
+
+                # Refresh
+                self.load_learned_rules()
+
+                QMessageBox.information(
+                    self,
+                    "Rule Added",
+                    f"Learned rule added successfully for account: {account_id}"
+                )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Add Error",
+                    f"Failed to add rule: {e}"
+                )
+
+    def edit_learned_rule(self, description: str):
+        """Edit an existing learned rule."""
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
+            return
+
+        try:
+            # Get rules path
+            rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+            if not rules_path:
+                return
+
+            # Create classifier for this account
+            classifier = LearnedClassifier(
+                rules_path,
+                account_id=account_id
+            )
+
+            # Get existing rule
+            if description not in classifier.rules:
+                QMessageBox.warning(
+                    self,
+                    "Rule Not Found",
+                    f"Rule for '{description}' not found."
+                )
+                return
+
+            existing_rule = classifier.rules[description]
+
+            # Show edit dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Edit Learned Rule")
+            layout = QFormLayout(dialog)
+
+            # Display description (read-only)
+            desc_edit = QLineEdit()
+            desc_edit.setText(description)
+            desc_edit.setReadOnly(True)
+            layout.addRow("Description:", desc_edit)
+
+            # Type (editable)
+            type_combo = QComboBox()
+            type_combo.addItem("HOUSEHOLD", "HOUSEHOLD")
+            type_combo.addItem("INDIVIDUAL", "INDIVIDUAL")
+
+            # Set current type
+            current_type = existing_rule['type']
+            index = type_combo.findData(current_type)
+            if index >= 0:
+                type_combo.setCurrentIndex(index)
+
+            layout.addRow("Type:", type_combo)
+
+            # Buttons
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            )
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addRow(button_box)
+
+            if dialog.exec_() == QDialog.Accepted:
+                # Update the rule
+                new_type = type_combo.currentData()
+
+                classifier.rules[description] = {
+                    'type': new_type,
+                    'count': existing_rule.get('count', 1),
+                    'confidence': 100
+                }
+
+                # Save
+                classifier.repo.save()
+
+                # Refresh
+                self.load_learned_rules()
+
+                QMessageBox.information(
+                    self,
+                    "Rule Updated",
+                    f"Learned rule updated successfully."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Edit Error",
+                f"Failed to edit rule: {e}"
+            )
+
+    def delete_learned_rule(self, description: str):
+        """Delete a learned rule."""
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Rule",
+            f"Are you sure you want to delete this rule?\n\n"
+            f"Description: {description}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Get rules path
+                rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+                if not rules_path:
+                    return
+
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+
+                # Delete rule
+                if description in classifier.rules:
+                    del classifier.rules[description]
+                    classifier.repo.save()
+
+                    # Refresh
+                    self.load_learned_rules()
+
+                    QMessageBox.information(
+                        self,
+                        "Rule Deleted",
+                        "Learned rule deleted successfully."
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Rule Not Found",
+                        f"Rule for '{description}' not found."
+                    )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Delete Error",
+                    f"Failed to delete rule: {e}"
+                )
+
+    def apply_rules_to_file(self):
+        """Apply learned rules to a single transaction file."""
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
+            QMessageBox.warning(
+                self,
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        # Get rules path
+        rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+        if not rules_path or not rules_path.exists():
+            QMessageBox.warning(
+                self,
+                "No Rules File",
+                "No learned rules file found."
             )
             return
 
@@ -748,7 +1116,13 @@ class TransactionClassifierTab(QWidget):
 
         if file_path:
             try:
-                stats = self.learned_classifier.apply_to_transactions(
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+
+                stats = classifier.apply_to_transactions(
                     Path(file_path),
                     verbose=True
                 )
@@ -756,7 +1130,8 @@ class TransactionClassifierTab(QWidget):
                 QMessageBox.information(
                     self,
                     "Rules Applied",
-                    f"Applied learned rules to: {Path(file_path).name}\n\n"
+                    f"Applied learned rules from account: {account_id}\n"
+                    f"To file: {Path(file_path).name}\n\n"
                     f"Reclassified: {stats['reclassified']}\n"
                     f"Unchanged: {stats['unchanged']}"
                 )
@@ -769,11 +1144,22 @@ class TransactionClassifierTab(QWidget):
 
     def apply_rules_to_folder(self):
         """Apply learned rules to all transaction files in a folder."""
-        if not self.learned_classifier:
+        account_id = self.learned_rules_account_combo.currentData()
+        if not account_id:
             QMessageBox.warning(
                 self,
-                "No Learned Classifier",
-                "Please configure and reload the classifier first."
+                "No Account Selected",
+                "Please select an account first."
+            )
+            return
+
+        # Get rules path
+        rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+        if not rules_path or not rules_path.exists():
+            QMessageBox.warning(
+                self,
+                "No Rules File",
+                "No learned rules file found."
             )
             return
 
@@ -785,6 +1171,12 @@ class TransactionClassifierTab(QWidget):
 
         if folder_path:
             try:
+                # Create classifier for this account
+                classifier = LearnedClassifier(
+                    rules_path,
+                    account_id=account_id
+                )
+
                 # Find all Excel files
                 folder = Path(folder_path)
                 excel_files = list(folder.glob("**/*classified.xlsx"))
@@ -798,7 +1190,7 @@ class TransactionClassifierTab(QWidget):
                     return
 
                 # Apply rules
-                stats = self.learned_classifier.apply_to_all_files(
+                stats = classifier.apply_to_all_files(
                     excel_files,
                     verbose=True
                 )
@@ -806,7 +1198,8 @@ class TransactionClassifierTab(QWidget):
                 QMessageBox.information(
                     self,
                     "Rules Applied",
-                    f"Applied learned rules to {len(excel_files)} file(s)\n\n"
+                    f"Applied learned rules from account: {account_id}\n"
+                    f"To {len(excel_files)} file(s)\n\n"
                     f"Total reclassified: {stats['reclassified']}\n"
                     f"Total unchanged: {stats['unchanged']}\n"
                     f"Files updated: {stats['files_updated']}"
@@ -1352,14 +1745,6 @@ class TransactionClassifierTab(QWidget):
 
     def test_classification(self):
         """Test classification on the input description."""
-        if not self.classifier:
-            QMessageBox.warning(
-                self,
-                "No Classifier",
-                "Please reload the classifier first."
-            )
-            return
-
         description = self.test_description_edit.text().strip()
         if not description:
             QMessageBox.warning(
@@ -1374,8 +1759,37 @@ class TransactionClassifierTab(QWidget):
         try:
             from decimal import Decimal
 
+            # Get settings
+            rules_path = Path(self.rules_path_edit.text()) if self.rules_path_edit.text() else None
+
+            # Create a test classifier (use first account if available)
+            account_id = self.type_patterns_account_combo.currentData()
+            if not account_id:
+                QMessageBox.warning(
+                    self,
+                    "No Account",
+                    "Please configure accounts first."
+                )
+                return
+
+            # Get account config for patterns
+            account_config = self._get_account_config(account_id)
+            type_patterns_config = None
+            if account_config:
+                type_patterns_config = {
+                    'household': account_config.household_patterns or [],
+                    'individual': account_config.individual_patterns or []
+                }
+
+            classifier = TransactionClassifier(
+                account_id=account_id,
+                learned_rules_path=rules_path,
+                use_learned=True,
+                type_patterns_config=type_patterns_config
+            )
+
             # Classify (returns only type now, no category)
-            exp_type = self.classifier.classify_transaction(
+            exp_type = classifier.classify_transaction(
                 description,
                 Decimal("0"),  # Amount doesn't affect most classifications
                 is_shared
@@ -1385,12 +1799,9 @@ class TransactionClassifierTab(QWidget):
             source = "Keyword patterns"
             confidence = 0.7
 
-            # Check one-time mappings
-            # (We'd need date for this, so skip for test)
-
             # Check learned rules
-            if self.classifier.learned_classifier:
-                learned_result = self.classifier.learned_classifier.classify(description)
+            if classifier.learned_classifier:
+                learned_result = classifier.learned_classifier.classify(description)
                 if learned_result:
                     source = "Learned rules (from user corrections)"
                     confidence = 0.95
