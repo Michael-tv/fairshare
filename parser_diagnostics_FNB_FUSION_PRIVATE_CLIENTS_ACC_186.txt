@@ -1,0 +1,119 @@
+================================================================================
+PARSER DIAGNOSTICS REPORT
+================================================================================
+
+PDF: data\raw\statements\Michael\FNB_FUSION_PRIVATE_CLIENTS_ACC_186.pdf
+Template: FNB - Fusion Account
+Started: 2025-11-17 05:40:18
+Finished: 2025-11-17 05:40:18
+Duration: 0.44 seconds
+
+LINE PROCESSING:
+--------------------------------------------------------------------------------
+Total lines in PDF: 96
+Lines in transaction section: 75
+Lines matching pattern: 8 (10.7%)
+Lines skipped: 8
+
+Skip Reasons:
+  - Matches skip pattern: Staat: 4
+  - Matches skip pattern: Bladsy : 2
+  - Matches skip pattern: FUSION PRIVATE: 2
+
+TRANSACTION RESULTS:
+--------------------------------------------------------------------------------
+Transactions created: 8
+Transactions failed: 0
+Success rate: 100.0%
+
+Credits (payments in): 1 transactions, R70,402.52
+Debits (payments out): 7 transactions, R3,250.42
+Net: R67,152.10
+
+BALANCE VALIDATION:
+--------------------------------------------------------------------------------
+✗ Balance validation FAILED
+Opening balance: R2,755.35
+Closing balance: R11,374.34
+Calculated balance: R69,907.45
+Difference: R58,533.11
+
+Warnings:
+  ⚠️  Balance mismatch: Expected R69,907.45, Statement shows R11,374.34 (Difference: R58,533.11)
+
+================================================================================
+
+================================================================================
+UNMATCHED LINES (75 total, showing first 50)
+================================================================================
+
+Line 1: Bladsy 1van 2
+Line 4: NS/IM/WV/DDA Q3
+Line 5: 838 838 62207920514 2025/03/19 FNB FUSION PRIVATE CLIENTS ACC
+Line 6: 100651
+Line 7: XSTZFN0:62207920514
+Line 8: 6 Posbus 8122
+Line 9: Centurion 0046
+Line 10: Straat Adres Centurion
+Line 11: BBST186 078620 Hendrik Verwoerd Rylaan 2023
+Line 12: MNR MICHAEL T VICTOR Universele Takkode 250655
+Line 13: 1
+Line 14: PENQUIN SGL 205
+Line 15: 9 fnb.co.za
+Line 16: WIERDAPARK
+Line 17: Verlore Kaarte (087) 575 4727
+Line 18: 0157
+Line 19: Rekeningnavrae +27 (0)11 369 2000
+Line 20: Verhoudingsbestuurder Mbalenhle Zulu
+Line 21: 1
+Line 22: 4 (087) 030-3029
+Line 23: Nie Verskaf FNB Fusion Private Clients Acc : 62207920514
+Line 24: Bank BTW Registrasienommer 4210102051
+Line 25: Belastingfaktuur/Staatnommer : 186
+Line 26: Staat Periode : 19 Februarie 2025 tot 19 Maart 2025
+Line 27: Staatdatum : 19 Maart 2025
+Line 36: koste
+Line 45: 01 Maa Fusion Interest Rebate 3.58Kt 64,400.33Kt
+Line 46: 01 Maa Interne Debiet Order Momentum Mm103499041Bas6314Xp 302.00 64,098.33Kt
+Line 47: 01 Maa Magband Debiet Outsurance Ot74915634 Ga5270 4,332.53 59,765.80Kt
+Line 48: 01 Maa Magband Debiet Pps 000124636978 0Wnh50 1,777.78 57,988.02Kt
+Line 49: 03 Maa POS Aankope Menlyn Maine P0085 400738*5870 28 Feb 10.00 57,978.02Kt
+Line 50: 03 Maa POS Aankope Yoco *Elvis Brew 400738*5870 02 Mar 68.00 57,910.02Kt
+Line 51: 03 Maa Magband Debiet Mommedsch Db 1884241015 6,648.00 51,262.02Kt
+Line 52: 03 Maa Magband Debiet Allan Grayagra1127545 Aglpdebi 10,000.00 41,262.02Kt
+Line 53: 03 Maa Magband Debiet Vodacom 0455013849 I4958203 251.37 41,010.65Kt
+Line 54: 03 Maa Magband Debiet Sl-Debits Sanlam 96411026 3,321.38 37,689.27Kt
+Line 55: 04 Maa Int Betaling Na Pretorium Trust Acco 930539 25.00 37,664.27Kt
+Line 56: 04 Maa Int Betaling Na Kamdeboo 15 Prop Tax 5017086535 2,400.00 35,264.27Kt
+Line 57: 04 Maa Int Betaling Na Water + Electricity 451596 3,261.94 32,002.33Kt
+Line 58: 04 Maa Int Betaling Na Kamdeboo Levie Victor Levy Jan 2021 1,170.00 30,832.33Kt
+Line 59: 04 Maa Int Betaling Na Swimming Lessons Victor Emelia 472.50 30,359.83Kt
+Line 60: 04 Maa Int Betaling Na School Fees Emelia Victor 4,273.00 26,086.83Kt
+Line 61: 04 Maa Int Oorplasing Na Feb Payment 30,719.78 4,632.95
+Line 62: Transaksies in RAND (ZAR): 62207920514
+Line 63: Opgeloopte
+Line 65: koste
+Line 66: 04 Maa POS Aankope Afrihost.Com 4 405769*5166 01 Mar 39.00 4,671.95
+Line 67: 05 Maa POS Aankope Payfast *Rocket 431835*7509 04 Mar 705.00 5,376.95
+Line 68: 06 Maa POS Aankope Dischem Lynwood Lan 400738*5870 05 Mar 1,249.03 6,625.98
+Line 69: 07 Maa Int Betaling Na C.E. Mohr Emelia Victor 1,100.00 7,725.98
+
+
+================================================================================
+LOG MESSAGES (14 total)
+================================================================================
+
+[05:40:18.025] INFO: Starting parse of FNB_FUSION_PRIVATE_CLIENTS_ACC_186.pdf
+[05:40:18.025] INFO: Using template: FNB - Fusion Account
+[05:40:18.470] INFO: Extracted text from PDF (4771 characters)
+[05:40:18.470] INFO: Parsed summary - Statement date: 2025-11-17
+[05:40:18.470] INFO: Section markers - Start: ['Datum Beskrywing Bedrag Saldo', 'Date Description Amount Balance', 'Datum', 'Date'], End: ['Staatsaldo', 'Statement Balance', 'Sluitbalans', 'Closing Balance', 'Totale', 'Totals']
+[05:40:18.470] INFO: Transaction parsing complete:
+[05:40:18.470] INFO:   Total lines: 96
+[05:40:18.470] INFO:   Lines in section: 75
+[05:40:18.470] INFO:   Lines matched: 8
+[05:40:18.470] INFO:   Transactions created: 8
+[05:40:18.470] INFO:   Transactions failed: 0
+[05:40:18.470] INFO: Parsed 8 transactions
+[05:40:18.470] INFO: Total credits: R70,402.52, Total debits: R3,250.42
+[05:40:18.470] WARNING: Balance mismatch: Expected R69,907.45, Statement shows R11,374.34 (Difference: R58,533.11)
