@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 import yaml
-from src.bank_template import BankTemplate
 
 
 class ValidationSeverity(Enum):
@@ -173,6 +172,29 @@ class TemplateValidator:
                 f"Error reading file: {e}"
             ))
             return self._create_result(template_name)
+
+        # Validate structure
+        self._validate_basic_structure(config)
+        self._validate_detection(config)
+        self._validate_parsing(config)
+        self._validate_sections(config)
+        self._validate_summary(config)
+        self._validate_output(config)
+
+        return self._create_result(template_name)
+
+    def validate(self, config: Dict[str, Any], template_name: str = "template") -> ValidationResult:
+        """
+        Validate a template configuration dictionary.
+
+        Args:
+            config: Template configuration dictionary (already parsed from YAML)
+            template_name: Optional name for the template (defaults to "template")
+
+        Returns:
+            ValidationResult with all issues found
+        """
+        self.issues = []
 
         # Validate structure
         self._validate_basic_structure(config)

@@ -369,7 +369,8 @@ class TemplateEditorTab(QWidget):
             self.progress_bar.setValue(40)
 
             # Validate template structure
-            validation_result = self.validator.validate(template_dict)
+            template_name = self.current_template_name or template_dict.get('bank_name', 'template')
+            validation_result = self.validator.validate(template_dict, template_name)
             self._update_validation_results(validation_result)
 
             self.progress_bar.setValue(60)
