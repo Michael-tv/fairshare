@@ -257,6 +257,9 @@ class TemplateEditorTab(QWidget):
         self.validation_text.setMaximumHeight(150)
         self.validation_text.setReadOnly(True)
         self.validation_text.setFont(QFont("Courier New", 9))
+        # Ensure scroll bars are always visible when content overflows
+        self.validation_text.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.validation_text.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         validation_layout.addWidget(self.validation_text)
 
         layout.addWidget(validation_group)
@@ -652,6 +655,10 @@ class TemplateEditorTab(QWidget):
 
         # Transaction Parsing - show samples
         if transactions:
+            # Count actual parsed transactions by type
+            parsed_credits = sum(1 for t in transactions if t.is_credit)
+            parsed_debits = sum(1 for t in transactions if not t.is_credit)
+
             # Sample date
             first_txn = transactions[0]
             self._update_parameter_widget(
@@ -675,11 +682,21 @@ class TemplateEditorTab(QWidget):
                 True
             )
 
-            # Total transactions
+            # Total transactions with mismatch checking
+            expected_text = ""
+            if summary.debit_count > 0 or summary.credit_count > 0:
+                expected_text = f" (expected: {summary.debit_count} debits, {summary.credit_count} credits)"
+
             self._update_parameter_widget(
                 'total_transactions',
-                f"{len(transactions)} transactions ({summary.debit_count} debits, {summary.credit_count} credits)",
+                f"{len(transactions)} parsed: {parsed_debits} debits, {parsed_credits} credits{expected_text}",
                 len(transactions) > 0
+            )
+
+            # Check for transaction count mismatch and add warning to validation text
+            self._check_transaction_mismatch(
+                parsed_credits, parsed_debits,
+                summary.credit_count, summary.debit_count
             )
         else:
             # No transactions found
@@ -687,6 +704,38 @@ class TemplateEditorTab(QWidget):
             self._update_parameter_widget('sample_description', "No transactions found", False)
             self._update_parameter_widget('sample_amount', "No transactions found", False)
             self._update_parameter_widget('total_transactions', "0 transactions", False)
+
+    def _check_transaction_mismatch(self, parsed_credits: int, parsed_debits: int,
+                                    expected_credits: int, expected_debits: int):
+        """Check for transaction count mismatch and append warning to validation text"""
+        warnings = []
+
+        # Only check if expected counts are available from statement
+        if expected_credits > 0 or expected_debits > 0:
+            if parsed_credits != expected_credits:
+                warnings.append(
+                    f"⚠️  Credit transaction mismatch: Parsed {parsed_credits} but statement shows {expected_credits}"
+                )
+
+            if parsed_debits != expected_debits:
+                warnings.append(
+                    f"⚠️  Debit transaction mismatch: Parsed {parsed_debits} but statement shows {expected_debits}"
+                )
+
+            # If there are mismatches, append to validation text
+            if warnings:
+                current_text = self.validation_text.toPlainText()
+                warning_section = "\n\n" + "=" * 60 + "\n"
+                warning_section += "🔴 TRANSACTION COUNT WARNINGS\n"
+                warning_section += "=" * 60 + "\n"
+                warning_section += "\n".join(warnings)
+                warning_section += "\n\n💡 Tip: This may indicate:\n"
+                warning_section += "  • Transaction pattern not matching all lines\n"
+                warning_section += "  • Section markers too restrictive\n"
+                warning_section += "  • Skip patterns excluding valid transactions\n"
+                warning_section += "  • Statement summary counts include fees/interest\n"
+
+                self.validation_text.setPlainText(current_text + warning_section)
 
     def _update_summary_error(self, error_msg: str):
         """Update parameter widgets to show error state"""

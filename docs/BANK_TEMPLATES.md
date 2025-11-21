@@ -257,6 +257,202 @@ summary:
 - For numbers: use `(?P<number>...)`
 - For accounts: use `(?P<account>...)`
 
+#### How to Add Patterns for Summary Parameters
+
+Each summary parameter follows the same structure. Here's how to add patterns for different parameters:
+
+**Basic Pattern Structure:**
+```yaml
+summary:
+  parameter_name:
+    pattern: 'Text to match\s+(?P<groupname>capture_pattern)'
+    # Optional: format (for dates)
+    # Optional: multiple patterns (see below)
+```
+
+**Step-by-Step Guide:**
+
+1. **Find the parameter in your PDF**: Open your statement and locate the text for the parameter you want to extract
+2. **Identify surrounding text**: Note what text appears before/after the value
+3. **Create regex pattern**: Use regex to match the text and capture the value in a named group
+4. **Test the pattern**: Use regex101.com to test your pattern against sample text
+
+**Parameter-by-Parameter Examples:**
+
+**Statement Date:**
+```yaml
+summary:
+  statement_date:
+    # Single pattern
+    pattern: 'Statement Date\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+    format: "%d %b %Y"
+
+    # OR multiple patterns (tries each in order)
+    patterns:
+      - 'Statement Date:\s+(?P<date>\d{2}/\d{2}/\d{4})'
+      - 'Date:\s+(?P<date>\d{4}-\d{2}-\d{2})'
+      - 'Datum:\s+(?P<date>\d{2}\s+\w+\s+\d{4})'  # Afrikaans
+    format: "%d/%m/%Y"  # Or "%Y-%m-%d" or "%d %b %Y"
+
+    # Optional: translate non-English months
+    month_translation:
+      Mei: "May"
+      Okt: "Oct"
+      Des: "Dec"
+```
+
+**Account Number:**
+```yaml
+summary:
+  account_number:
+    pattern: 'Account Number\s+(?P<account>[\d\s-]+)'
+    # OR for masked accounts (e.g., **** 1234)
+    pattern: 'Account\s+(?P<account>[\d*\s]+)'
+    # OR multiple formats
+    patterns:
+      - 'Account No\.:?\s+(?P<account>[\d\s]+)'
+      - 'ACCOUNT:\s+(?P<account>[\d-]+)'
+```
+
+**Opening Balance:**
+```yaml
+summary:
+  opening_balance:
+    pattern: 'Opening Balance\s+(?P<amount>[\d\s,.]+)'
+    # OR with currency symbol
+    pattern: 'Opening Balance\s+R\s*(?P<amount>[\d\s,.]+)'
+    # OR bilingual
+    patterns:
+      - 'Opening Balance\s+(?P<amount>[\d\s,.]+)'
+      - 'Openingsaldo\s+(?P<amount>[\d\s,.]+)'
+```
+
+**Closing Balance:**
+```yaml
+summary:
+  closing_balance:
+    pattern: 'Closing Balance\s+(?P<amount>[\d\s,.]+)'
+    # OR with credit/debit indicator
+    pattern: 'Closing Balance\s+(?P<amount>[\d\s,.]+)(?:Cr|Dr)?'
+```
+
+**Total Expenses (Debits):**
+```yaml
+summary:
+  total_expenses:
+    pattern: 'Total Debits\s+(?P<amount>[\d\s,.]+)'
+    # OR other labels
+    patterns:
+      - 'Total Purchases\s+(?P<amount>[\d\s,.]+)'
+      - 'Total Spent\s+(?P<amount>[\d\s,.]+)'
+      - 'Used\s+(?P<amount>[\d\s,.]+)'  # FNB credit cards
+```
+
+**Total Payments (Credits):**
+```yaml
+summary:
+  total_payments:
+    pattern: 'Total Credits\s+(?P<amount>[\d\s,.]+)'
+    # OR with indicator
+    pattern: 'Payments Received\s+(?P<amount>[\d\s,.]+)Cr'
+    # OR multiple labels
+    patterns:
+      - 'Total Payments\s+(?P<amount>[\d\s,.]+)'
+      - 'Payments Received\s+(?P<amount>[\d\s,.]+)'
+```
+
+**Interest and Fees:**
+```yaml
+summary:
+  interest_fees:
+    pattern: 'Interest.*?\s+(?P<amount>[\d\s,.]+)'
+    # OR combined
+    pattern: 'Interest / Fees\s+(?P<amount>[\d\s,.]+)'
+    # OR separate patterns
+    patterns:
+      - 'Interest Charged\s+(?P<amount>[\d\s,.]+)'
+      - 'Service Fees\s+(?P<amount>[\d\s,.]+)'
+```
+
+**Statement Number:**
+```yaml
+summary:
+  statement_number:
+    pattern: 'Statement No\.:?\s*(?P<number>\d+)'
+    # OR flexible colon/space
+    pattern: 'Statement\s+(?:No|Number)\.?\s*:?\s*(?P<number>\d+)'
+```
+
+**Transaction Counts (for validation):**
+```yaml
+summary:
+  # Number of credit transactions
+  credit_count:
+    pattern: 'Payments Received.*?(?P<number>\d+)\s+transactions?'
+    # OR
+    pattern: 'Credits:\s+(?P<number>\d+)'
+
+  # Number of debit transactions
+  debit_count:
+    pattern: 'Purchases.*?(?P<number>\d+)\s+transactions?'
+    # OR
+    pattern: 'Debits:\s+(?P<number>\d+)'
+```
+
+**Statement Period:**
+```yaml
+summary:
+  statement_period:
+    # If explicitly shown
+    pattern: 'Statement Period\s+(?P<date>\d{2}\s+\w+\s+\d{4})\s+to\s+(?P<date>\d{2}\s+\w+\s+\d{4})'
+    # Usually derived from statement_date, so often not needed
+```
+
+**Tips for Adding Patterns:**
+
+✅ **DO:**
+- Use `\s+` for one or more spaces (flexible spacing)
+- Use `\s*` for optional spaces
+- Use `.*?` for non-greedy matching of any text
+- Use `(?:...)` for non-capturing groups (when you need grouping but don't want to capture)
+- Use `[...]?` to make parts optional (e.g., `Cr?` matches optional "Cr")
+- Test patterns on regex101.com with Python flavor
+- Provide multiple patterns if your bank uses different formats
+- Add `month_translation` for non-English statements
+
+❌ **DON'T:**
+- Hard-code specific account numbers or dates
+- Use greedy `.*` when `.*?` (non-greedy) is more appropriate
+- Forget to escape special regex characters (`.`, `?`, `+`, etc.)
+- Make patterns too specific (they should work across multiple months)
+
+**Common Regex Patterns:**
+
+```yaml
+# Amounts (flexible formatting)
+(?P<amount>[\d\s,.]+)              # Handles: 1234.56, 1,234.56, 1 234.56
+
+# Dates (various formats)
+(?P<date>\d{2}/\d{2}/\d{4})        # DD/MM/YYYY: 15/09/2024
+(?P<date>\d{2}\s+\w+\s+\d{4})      # DD Mon YYYY: 15 Sep 2024
+(?P<date>\d{4}-\d{2}-\d{2})        # YYYY-MM-DD: 2024-09-15
+
+# Account numbers (with various separators)
+(?P<account>[\d\s-]+)              # Digits with spaces/dashes: 1234-5678
+(?P<account>[\d*\s]+)              # Masked: **** 1234
+
+# Statement numbers
+(?P<number>\d+)                    # Simple number: 12345
+
+# Flexible whitespace
+\s+                                # One or more spaces
+\s*                                # Zero or more spaces
+
+# Optional text
+(?:Cr|Dr)?                         # Optional credit/debit indicator
+\.?\s*:?\s*                        # Optional period, colon, spaces
+```
+
 ### 5. Output Configuration
 
 ```yaml
