@@ -9,7 +9,6 @@
 
 bank_name: "FNB"
 account_type: "Fusion Account"
-country: "ZA"
 
 # Auto-detection configuration
 detection:
@@ -86,12 +85,6 @@ parsing:
   card_number:
     inline_pattern: '\d{6}\*(?P<digits>\d{4})'
     extract_last_digits: 4
-
-  # Balance tracking (optional)
-  balance:
-    group: "balance"
-    decimal_separator: "."
-    thousands_separators: [",", " "]
 
 # Section boundaries (bilingual)
 sections:

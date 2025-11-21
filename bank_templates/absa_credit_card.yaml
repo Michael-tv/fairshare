@@ -16,7 +16,6 @@
 
 bank_name: "ABSA"
 account_type: "Credit Card"
-country: "ZA"
 
 # Auto-detection configuration
 # CUSTOMIZE: Update based on your ABSA credit card statement
@@ -92,7 +91,6 @@ parsing:
   card_number:
     context_pattern: '(?:Card|Card No|Card Number)\s*:?\s*(?P<card>[\d\s*]+)'
     extract_last_digits: 4
-    scope: "until_next_card"
 
 # Section boundaries
 # CUSTOMIZE: Based on your statement layout
@@ -166,6 +164,17 @@ summary:
     patterns:
       - 'Card Number\s*:?\s*(?P<account>[\d\s*]+)'
       - 'Account Number\s*:?\s*(?P<account>[\d\s]+)'
+
+  # Transaction counts for validation
+  credit_count:
+    patterns:
+      - 'Payments Received.*?(?P<number>\d+)\s+transactions?'
+      - '(?P<number>\d+)\s+payments?'
+
+  debit_count:
+    patterns:
+      - 'Purchases.*?(?P<number>\d+)\s+transactions?'
+      - '(?P<number>\d+)\s+purchases?'
 
 # Output configuration
 output:

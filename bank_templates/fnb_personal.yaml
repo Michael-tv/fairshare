@@ -9,7 +9,6 @@
 
 bank_name: "FNB"
 account_type: "Personal Account"
-country: "ZA"
 
 # Auto-detection configuration
 detection:
@@ -80,12 +79,6 @@ parsing:
     inline_pattern: '\d{6}\*(?P<digits>\d{4})'
     extract_last_digits: 4
 
-  # Balance tracking (optional, for verification)
-  balance:
-    group: "balance"
-    decimal_separator: "."
-    thousands_separator: ","
-
 # Section boundaries
 sections:
   start_markers:
@@ -148,6 +141,13 @@ summary:
   # Account number
   account_number:
     pattern: '(?:Account|Rekening)\s+(?:Number|Nommer)\s+(?P<account>[\d\s]+)'
+
+  # Transaction counts for validation
+  credit_count:
+    pattern: '(?:Total Credits|Totale Kreditte).*?(?P<number>\d+)\s+transactions?'
+
+  debit_count:
+    pattern: '(?:Total Debits|Totale Debitte).*?(?P<number>\d+)\s+transactions?'
 
 # Output configuration
 output:
