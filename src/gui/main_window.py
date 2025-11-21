@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 
 from gui.settings_tab import SettingsTab
+from gui.template_editor_tab import TemplateEditorTab
 from gui.process_statements_tab import ProcessStatementsTab
 from gui.view_transactions_tab import ViewTransactionsTab
 from gui.monthly_transactions_tab import MonthlyTransactionsTab
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
 
         # Initialize tabs
         self.settings_tab = SettingsTab(self)
+        self.template_editor_tab = TemplateEditorTab(self)
         self.process_statements_tab = ProcessStatementsTab(self)
         self.view_transactions_tab = ViewTransactionsTab(self)
         self.monthly_transactions_tab = MonthlyTransactionsTab(self)
@@ -48,6 +50,7 @@ class MainWindow(QMainWindow):
 
         # Add tabs to widget in order
         self.tabs.addTab(self.settings_tab, "Settings")
+        self.tabs.addTab(self.template_editor_tab, "Template Editor")
         self.tabs.addTab(self.process_statements_tab, "Process Statements")
         self.tabs.addTab(self.view_transactions_tab, "View Transactions")
         self.tabs.addTab(self.monthly_transactions_tab, "Monthly Transactions")
