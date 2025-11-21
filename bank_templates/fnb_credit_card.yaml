@@ -9,7 +9,6 @@
 
 bank_name: "FNB"
 account_type: "Credit Card"
-country: "ZA"
 
 # Auto-detection configuration
 # The parser scans the first page of the PDF for these markers
@@ -77,7 +76,6 @@ parsing:
     # Pattern appears in statement before transaction block
     context_pattern: 'Card No\.\s+(?P<card>[\d*\s]+)'
     extract_last_digits: 4  # Extract last 4 digits for display
-    scope: "until_next_card"  # Apply to all transactions until next card marker
 
 # Section boundaries
 # Defines where transaction data appears in the statement
@@ -142,6 +140,13 @@ summary:
   # Account number: "CREDIT CARD 1234 5678 9012 3456"
   account_number:
     pattern: 'CREDIT CARD\s+(?P<account>[\d\s]+)'
+
+  # Transaction counts for validation
+  credit_count:
+    pattern: 'Payments Received.*?(?P<number>\d+)\s+transactions?'
+
+  debit_count:
+    pattern: 'Purchases.*?(?P<number>\d+)\s+transactions?'
 
 # Output configuration
 # Defines how transactions are labeled in the output

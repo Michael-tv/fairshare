@@ -16,7 +16,6 @@
 
 bank_name: "ABSA"
 account_type: "Cheque Account"
-country: "ZA"
 
 # Auto-detection configuration
 # CUSTOMIZE: Update these based on text that appears on your ABSA statements
@@ -76,12 +75,6 @@ parsing:
       #   replace: ''
 
     min_length: 2
-
-  # Balance tracking (if present in your statements)
-  balance:
-    group: "balance"
-    decimal_separator: "."
-    thousands_separator: ","
 
 # Section boundaries
 # CUSTOMIZE: Based on your statement layout
@@ -143,6 +136,17 @@ summary:
     patterns:
       - 'Account (?:No|Number)\s*:?\s*(?P<account>[\d\s]+)'
       - 'Cheque Account\s*:?\s*(?P<account>[\d\s]+)'
+
+  # Transaction counts for validation
+  credit_count:
+    patterns:
+      - 'Total Credits\s*:?\s*(?P<number>\d+)\s+transactions?'
+      - '(?P<number>\d+)\s+credits?'
+
+  debit_count:
+    patterns:
+      - 'Total Debits\s*:?\s*(?P<number>\d+)\s+transactions?'
+      - '(?P<number>\d+)\s+debits?'
 
 # Output configuration
 output:
