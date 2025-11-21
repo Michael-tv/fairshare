@@ -261,17 +261,51 @@ class TemplateEditorTab(QWidget):
 
         layout.addWidget(validation_group)
 
-        # Summary section
-        summary_group = QGroupBox("Statement Summary")
-        summary_layout = QVBoxLayout(summary_group)
+        # Parameter Mapping section
+        mapping_group = QGroupBox("📋 Parameter Mapping (YAML → Parsed)")
+        mapping_layout = QVBoxLayout(mapping_group)
 
-        self.summary_text = QTextEdit()
-        self.summary_text.setMaximumHeight(100)
-        self.summary_text.setReadOnly(True)
-        self.summary_text.setFont(QFont("Courier New", 9))
-        summary_layout.addWidget(self.summary_text)
+        # Statement Information group
+        stmt_info_label = QLabel("Statement Information")
+        stmt_info_label.setStyleSheet("font-weight: bold; color: #2196F3; margin-top: 5px;")
+        mapping_layout.addWidget(stmt_info_label)
 
-        layout.addWidget(summary_group)
+        self.param_widgets = {}
+
+        # Statement fields
+        self.param_widgets['statement_date'] = self._create_parameter_widget("Statement Date", "statement_date")
+        mapping_layout.addWidget(self.param_widgets['statement_date'])
+
+        self.param_widgets['account_number'] = self._create_parameter_widget("Account Number", "account_number")
+        mapping_layout.addWidget(self.param_widgets['account_number'])
+
+        self.param_widgets['statement_period'] = self._create_parameter_widget("Statement Period", "statement_period")
+        mapping_layout.addWidget(self.param_widgets['statement_period'])
+
+        self.param_widgets['opening_balance'] = self._create_parameter_widget("Opening Balance", "opening_balance")
+        mapping_layout.addWidget(self.param_widgets['opening_balance'])
+
+        self.param_widgets['closing_balance'] = self._create_parameter_widget("Closing Balance", "closing_balance")
+        mapping_layout.addWidget(self.param_widgets['closing_balance'])
+
+        # Transaction Parsing group
+        txn_parsing_label = QLabel("Transaction Parsing")
+        txn_parsing_label.setStyleSheet("font-weight: bold; color: #2196F3; margin-top: 10px;")
+        mapping_layout.addWidget(txn_parsing_label)
+
+        self.param_widgets['sample_date'] = self._create_parameter_widget("Sample Date Format", "sample_date")
+        mapping_layout.addWidget(self.param_widgets['sample_date'])
+
+        self.param_widgets['sample_description'] = self._create_parameter_widget("Sample Description", "sample_description")
+        mapping_layout.addWidget(self.param_widgets['sample_description'])
+
+        self.param_widgets['sample_amount'] = self._create_parameter_widget("Sample Amount", "sample_amount")
+        mapping_layout.addWidget(self.param_widgets['sample_amount'])
+
+        self.param_widgets['total_transactions'] = self._create_parameter_widget("Total Transactions Parsed", "total_transactions")
+        mapping_layout.addWidget(self.param_widgets['total_transactions'])
+
+        layout.addWidget(mapping_group)
 
         # Transactions table
         transactions_group = QGroupBox("Parsed Transactions")
@@ -296,6 +330,71 @@ class TemplateEditorTab(QWidget):
 
         return panel
 
+    def _create_parameter_widget(self, label: str, param_key: str) -> QWidget:
+        """Create a parameter display widget with label, value, and status indicator"""
+        widget = QFrame()
+        widget.setFrameStyle(QFrame.StyledPanel | QFrame.Sunken)
+        widget.setStyleSheet("QFrame { background-color: #f5f5f5; padding: 5px; border-radius: 3px; }")
+
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(10)
+
+        # Label
+        label_widget = QLabel(f"{label}:")
+        label_widget.setMinimumWidth(150)
+        label_widget.setStyleSheet("font-weight: bold; background: transparent;")
+        layout.addWidget(label_widget)
+
+        # Value display
+        value_label = QLabel("—")
+        value_label.setStyleSheet("background: transparent; font-family: 'Courier New';")
+        value_label.setWordWrap(True)
+        layout.addWidget(value_label, stretch=1)
+
+        # Status indicator
+        status_label = QLabel("○")
+        status_label.setFixedWidth(20)
+        status_label.setAlignment(Qt.AlignCenter)
+        status_label.setStyleSheet("font-size: 16px; background: transparent;")
+        layout.addWidget(status_label)
+
+        # Store references for later updates
+        widget.value_label = value_label
+        widget.status_label = status_label
+        widget.param_key = param_key
+
+        return widget
+
+    def _update_parameter_widget(self, param_key: str, value: str, is_valid: bool):
+        """Update a parameter widget with value and validation status"""
+        if param_key not in self.param_widgets:
+            return
+
+        widget = self.param_widgets[param_key]
+
+        # Update value
+        widget.value_label.setText(value if value else "—")
+
+        # Update status indicator
+        if value and is_valid:
+            widget.status_label.setText("✓")
+            widget.status_label.setStyleSheet("color: #4CAF50; font-size: 16px; font-weight: bold; background: transparent;")
+        elif value and not is_valid:
+            widget.status_label.setText("⚠")
+            widget.status_label.setStyleSheet("color: #FF9800; font-size: 16px; font-weight: bold; background: transparent;")
+        else:
+            widget.status_label.setText("✗")
+            widget.status_label.setStyleSheet("color: #F44336; font-size: 16px; font-weight: bold; background: transparent;")
+
+    def _clear_parameter_widgets(self):
+        """Clear all parameter widgets"""
+        for param_key in self.param_widgets:
+            widget = self.param_widgets[param_key]
+            widget.value_label.setText("—")
+            widget.status_label.setText("○")
+            widget.status_label.setStyleSheet("color: #999; font-size: 16px; background: transparent;")
+
     def _load_template_list(self):
         """Load available templates into combo box"""
         self.template_combo.clear()
@@ -313,6 +412,7 @@ class TemplateEditorTab(QWidget):
             self.yaml_editor.clear()
             self.current_template_name = None
             self.save_btn.setEnabled(False)
+            self._clear_parameter_widgets()
             return
 
         # Load template YAML
@@ -346,6 +446,9 @@ class TemplateEditorTab(QWidget):
         """Validate template and parse PDF if available"""
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+
+        # Clear previous results
+        self._clear_parameter_widgets()
 
         try:
             # Get YAML content
@@ -513,22 +616,84 @@ class TemplateEditorTab(QWidget):
             print(f"Parsing error: {traceback.format_exc()}")
 
     def _update_summary(self, summary: BankStatementSummary, transactions: List[BankTransaction]):
-        """Update summary text"""
-        lines = []
-        lines.append(f"Statement Date: {summary.statement_date.strftime('%Y-%m-%d')}")
-        lines.append(f"Opening Balance: R {summary.opening_balance:,.2f}")
-        lines.append(f"Closing Balance: R {summary.closing_balance:,.2f}")
-        lines.append("")
-        lines.append(f"Total Expenses: R {summary.total_expenses:,.2f} ({summary.debit_count} transactions)")
-        lines.append(f"Total Payments: R {summary.total_payments:,.2f} ({summary.credit_count} transactions)")
-        lines.append("")
-        lines.append(f"✅ Successfully parsed {len(transactions)} transactions")
+        """Update parameter mapping widgets with parsed values"""
+        # Statement Information
+        self._update_parameter_widget(
+            'statement_date',
+            summary.statement_date.strftime('%Y-%m-%d'),
+            True
+        )
 
-        self.summary_text.setPlainText("\n".join(lines))
+        self._update_parameter_widget(
+            'account_number',
+            summary.account_number if summary.account_number else "Not found",
+            bool(summary.account_number)
+        )
+
+        # Statement period (if available)
+        period_text = f"{summary.statement_date.strftime('%B %Y')}"
+        self._update_parameter_widget(
+            'statement_period',
+            period_text,
+            True
+        )
+
+        self._update_parameter_widget(
+            'opening_balance',
+            f"R {summary.opening_balance:,.2f}",
+            summary.opening_balance is not None
+        )
+
+        self._update_parameter_widget(
+            'closing_balance',
+            f"R {summary.closing_balance:,.2f}",
+            summary.closing_balance is not None
+        )
+
+        # Transaction Parsing - show samples
+        if transactions:
+            # Sample date
+            first_txn = transactions[0]
+            self._update_parameter_widget(
+                'sample_date',
+                first_txn.date.strftime('%Y-%m-%d'),
+                True
+            )
+
+            # Sample description (truncate if too long)
+            desc = first_txn.description[:50] + "..." if len(first_txn.description) > 50 else first_txn.description
+            self._update_parameter_widget(
+                'sample_description',
+                desc,
+                True
+            )
+
+            # Sample amount
+            self._update_parameter_widget(
+                'sample_amount',
+                f"R {first_txn.amount:,.2f} ({'credit' if first_txn.is_credit else 'debit'})",
+                True
+            )
+
+            # Total transactions
+            self._update_parameter_widget(
+                'total_transactions',
+                f"{len(transactions)} transactions ({summary.debit_count} debits, {summary.credit_count} credits)",
+                len(transactions) > 0
+            )
+        else:
+            # No transactions found
+            self._update_parameter_widget('sample_date', "No transactions found", False)
+            self._update_parameter_widget('sample_description', "No transactions found", False)
+            self._update_parameter_widget('sample_amount', "No transactions found", False)
+            self._update_parameter_widget('total_transactions', "0 transactions", False)
 
     def _update_summary_error(self, error_msg: str):
-        """Update summary with error message"""
-        self.summary_text.setPlainText(f"❌ {error_msg}")
+        """Update parameter widgets to show error state"""
+        self._clear_parameter_widgets()
+        # Could optionally show error in info label or status
+        self.info_label.setText(f"❌ {error_msg}")
+        self.info_label.setStyleSheet("color: #F44336; font-style: italic;")
 
     def _update_transactions_table(self, transactions: List[BankTransaction]):
         """Update transactions table"""
